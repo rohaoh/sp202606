@@ -2,7 +2,7 @@
 
 
 <h3>what to do</h3>
-invite 최은우 in this project<br>
+invite 은우 in this project<br>
 discussions->please vote for programming language<br>
 
 [![IMG-0470.jpg](https://i.postimg.cc/25MnVDYD/IMG-0470.jpg)](https://postimg.cc/R31WD2qs)
