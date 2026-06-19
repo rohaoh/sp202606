@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+<title>낙하 물리 시뮬레이터</title>
+<style>
+  /* ── 디자인 토큰 ── */
+  :root {
+    --bg:       #0a0e1a;
+    --panel:    #111827;
+    --border:   #1e2d45;
+    --accent:   #3b82f6;
+    --accent2:  #f59e0b;
+    --danger:   #ef4444;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --radius:   10px;
+    --mono:     'Consolas', 'Menlo', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    height: 100vh;
+    display: grid;
+    grid-template-rows: 52px 1fr;
+    overflow: hidden;
+  }
+
+  /* ── 상단 헤더 ── */
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 12px;
+  }
+  header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.03em; }
+  header span { font-size: 11px; color: var(--muted); }
+
+  /* ── 메인 레이아웃 ── */
+  .workspace {
+    display: grid;
+    grid-template-columns: 300px 1fr 280px;
+    gap: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* ── 왼쪽 패널: 설정 ── */
+  .panel {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .panel-section h2 {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 10px;
+  }
+
+  select, input[type=range], input[type=number] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+
+  .range-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .range-row input[type=range] { padding: 0; flex: 1; }
+  .range-val {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent2);
+    min-width: 60px;
+    text-align: right;
+  }
+
+  .btn-run {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background .2s, transform .1s;
+    letter-spacing: 0.04em;
+  }
+  .btn-run:hover  { background: #2563eb; }
+  .btn-run:active { transform: scale(0.98); }
+  .btn-run:disabled { background: var(--border); cursor: not-allowed; }
+
+  /* ── 중앙: 3D 뷰 ── */
+  #canvas-container {
+    position: relative;
+    background: radial-gradient(ellipse at 50% 70%, #0f1d35 0%, #0a0e1a 70%);
+  }
+  #canvas-container canvas { display: block; }
+
+  /* 낙하 경로 오버레이 */
+  #overlay-info {
+    position: absolute;
+    top: 14px; left: 14px;
+    background: rgba(10,14,26,0.75);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    pointer-events: none;
+    display: none;
+  }
+  #overlay-info .label { color: var(--muted); }
+  #overlay-info .val   { color: var(--accent2); }
+
+  /* 상태 배지 */
+  #status-badge {
+    position: absolute;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10,14,26,0.8);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 16px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ── 오른쪽: 결과 패널 ── */
+  .result-panel {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .result-panel h2 {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .metric-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .metric-card .metric-label {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .metric-card .metric-val {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent2);
+  }
+  .metric-card .metric-unit {
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: 4px;
+  }
+
+  /* 파괴율 바 */
+  .destruction-bar-wrap {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .destruction-bar-wrap .metric-label {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .bar-track {
+    background: #1e2d45;
+    border-radius: 4px;
+    height: 12px;
+    overflow: hidden;
+    margin-bottom: 6px;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width .8s cubic-bezier(.4,0,.2,1),
+                background .8s;
+    background: linear-gradient(90deg, #3b82f6, #f59e0b);
+  }
+  .bar-fill.danger { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+
+  .destruction-level {
+    font-size: 15px;
+    font-weight: 700;
+    text-align: center;
+    padding: 6px 0;
+    border-radius: 6px;
+  }
+  .level-0 { color: #34d399; background: #052e16; }
+  .level-1 { color: #fbbf24; background: #1c1000; }
+  .level-2 { color: #f97316; background: #1f0a00; }
+  .level-3 { color: #f43f5e; background: #1f0012; }
+  .level-4 { color: #ef4444; background: #200000; }
+
+  /* 궤적 그래프 */
+  #traj-canvas {
+    width: 100%;
+    height: 140px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    display: block;
+  }
+
+  .placeholder {
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+    padding: 30px 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+    <circle cx="12" cy="5" r="3"/><path d="M12 8v4m0 0l-2 6m2-6l2 6"/>
+    <path d="M6 20h12" stroke="#f59e0b"/>
+  </svg>
+  <h1>낙하 물리 시뮬레이터</h1>
+  <span>Terminal Velocity &amp; Impact Analysis</span>
+</header>
+
+<div class="workspace">
+  <!-- 왼쪽 설정 패널 -->
+  <div class="panel">
+
+    <div class="panel-section">
+      <h2>낙하 물체</h2>
+      <select id="sel-falling"></select>
+    </div>
+
+    <div class="panel-section">
+      <h2>충돌 대상</h2>
+      <select id="sel-target"></select>
+    </div>
+
+    <div class="panel-section">
+      <h2>낙하 높이</h2>
+      <div class="range-row">
+        <input type="range" id="height-range" min="10" max="10000" value="100" step="10">
+        <span class="range-val"><span id="height-display">100</span> m</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h2>공기 밀도 (kg/m³)</h2>
+      <div class="range-row">
+        <input type="range" id="air-range" min="0.1" max="1.5" value="1.225" step="0.001">
+        <span class="range-val" id="air-display">1.225</span>
+      </div>
+    </div>
+
+    <button class="btn-run" id="btn-run">▶ 시뮬레이션 실행</button>
+
+  </div>
+
+  <!-- 중앙 3D 뷰 -->
+  <div id="canvas-container">
+    <div id="overlay-info">
+      <div><span class="label">시간  </span> <span class="val" id="live-t">0.00</span> s</div>
+      <div><span class="label">고도  </span> <span class="val" id="live-h">0.0</span> m</div>
+      <div><span class="label">속도  </span> <span class="val" id="live-v">0.0</span> m/s</div>
+    </div>
+    <div id="status-badge">물체와 높이를 선택 후 실행하세요</div>
+  </div>
+
+  <!-- 오른쪽 결과 패널 -->
+  <div class="result-panel">
+    <h2>분석 결과</h2>
+
+    <div id="result-placeholder" class="placeholder">
+      시뮬레이션을 실행하면<br>결과가 여기 표시됩니다.
+    </div>
+
+    <div id="result-content" style="display:none; display:flex; flex-direction:column; gap:12px;">
+
+      <div class="metric-card">
+        <div class="metric-label">종단속도</div>
+        <div><span class="metric-val" id="r-vt">—</span><span class="metric-unit">m/s</span></div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">충돌 속도</div>
+        <div><span class="metric-val" id="r-vi">—</span><span class="metric-unit">m/s</span></div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">충격량 (운동량 변화)</div>
+        <div><span class="metric-val" id="r-j">—</span><span class="metric-unit">kg·m/s</span></div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">평균 충격력</div>
+        <div><span class="metric-val" id="r-f">—</span><span class="metric-unit">kN</span></div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">충격 압력</div>
+        <div><span class="metric-val" id="r-p">—</span><span class="metric-unit">MPa</span></div>
+      </div>
+
+      <div class="destruction-bar-wrap">
+        <div class="metric-label">파괴율</div>
+        <div class="bar-track"><div class="bar-fill" id="bar-fill" style="width:0%"></div></div>
+        <div class="destruction-level" id="r-level">—</div>
+      </div>
+
+      <div>
+        <div class="metric-label" style="font-size:11px;color:var(--muted);margin-bottom:6px;">속도 – 시간 그래프</div>
+        <canvas id="traj-canvas"></canvas>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="renderer.js"></script>
+</body>
+</html>
