@@ -1,6 +1,14 @@
 (async () => {
-  const THREE = await import('./node_modules/three/build/three.module.js');
-  const { GLTFLoader } = await import('./node_modules/three/examples/jsm/loaders/GLTFLoader.js');
+  const THREE = await import('three');
+  // GLTFLoader는 examples/jsm 내부에서 bare specifier('three')를 쓰므로
+  // import map(index.html)이 있어야 로드된다. 실패해도 핵심 렌더링은 살아남게
+  // try/catch로 감싸고, GLB 기능만 비활성화한다.
+  let GLTFLoader = null;
+  try {
+    ({ GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'));
+  } catch (e) {
+    console.warn('GLTFLoader 로드 실패 — GLB 모델 기능 비활성화', e);
+  }
 
   // ── DOM refs ──
   const $ = id => document.getElementById(id);
@@ -722,7 +730,8 @@
   rebuildFallingMesh();
 
   // ── [F17] GLB 모델 로더 ──
-  const gltfLoader = new GLTFLoader();
+  // GLTFLoader 로드 실패 시 gltfLoader는 null — GLB 기능만 꺼지고 나머지는 정상.
+  const gltfLoader = GLTFLoader ? new GLTFLoader() : null;
   let glbMesh = null; // 현재 로드된 GLB 루트 오브젝트
 
   function clearGlbMesh() {
@@ -757,6 +766,7 @@
       if (fallingMesh) fallingMesh.visible = true;
       requestRender(); return;
     }
+    if (!gltfLoader) { console.warn('[GLB] GLTFLoader 미사용 — 로드 불가'); return; }
     gltfLoader.load(path, gltf => {
       applyGlbToFalling(gltf.scene);
     }, undefined, err => console.warn('[GLB] load failed:', path, err));
@@ -771,6 +781,7 @@
   btnStl.addEventListener('click', () => fileStl.click());
   fileStl.addEventListener('change', () => {
     const f = fileStl.files[0]; if (!f) return;
+    if (!gltfLoader) { console.warn('[GLB] GLTFLoader 미사용 — 로드 불가'); return; }
     btnStl.textContent = f.name;
     const url = URL.createObjectURL(f);
     gltfLoader.load(url, gltf => {
