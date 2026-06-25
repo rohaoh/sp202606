@@ -1559,7 +1559,10 @@
     }
 
     if(playing&&simResult){
-      const totalSim=simResult.fallTime;
+      const mainFallTime=simResult.fallTime;
+      const moMaxTime=features.multiobj&&moObjects.some(o=>o.result)
+        ?Math.max(...moObjects.filter(o=>o.result).map(o=>o.result.fallTime)):0;
+      const totalSim=Math.max(mainFallTime,moMaxTime);
       const PLAYBACK=Math.max(4,totalSim/15);
       playHead=Math.min(playHead+dt/PLAYBACK*totalSim,totalSim);
       // 프레임 사이를 보간해 위치/속도가 연속적으로 변하게 한다 (끊김 제거)
@@ -1571,8 +1574,10 @@
       ovRho.textContent=(frame.rho||1.225).toFixed(4);
       ovAtm.textContent=frame.atm||'Troposphere';
       ovAtm.style.color=ATM_COLOR[frame.atm]||'#58a6ff';
-      atmBadge.textContent=frame.atm||'Troposphere';
-      atmBadge.style.color=ATM_COLOR[frame.atm]||'#58a6ff';
+      if(!impacted){
+        atmBadge.textContent=frame.atm||'Troposphere';
+        atmBadge.style.color=ATM_COLOR[frame.atm]||'#58a6ff';
+      }
       if(frame.px!=null){ovPx.textContent=(frame.px||0).toFixed(1);ovPz.textContent=(frame.pz||0).toFixed(1);}
       // [F7] Magnus force magnitude (live from JS result)
       if(features.magnus&&ovMf){
@@ -1585,15 +1590,15 @@
       hBar.style.height=(pct*100)+'%';
       skyMat.uniforms.altitudeFrac.value=Math.min(1,frame.h/40000);
       const visualH=Math.min(currentH0,1500);
-      // GLB 메시가 있으면 같은 위치로 동기화
-      if(glbMesh){
+      // GLB 메시가 있으면 같은 위치로 동기화 (착지 후엔 bounce가 담당)
+      if(glbMesh&&!impacted){
         glbMesh.position.x=(frame.px||0)*0.05;
         glbMesh.position.y=pct*visualH;
         glbMesh.position.z=(frame.pz||0)*0.05;
         const sGlb=features.magnus?(0.04+(+inpSpinRpm.value||0)/3000):0.05;
         glbMesh.rotation.y+=sGlb;
       }
-      if(fallingMesh){
+      if(fallingMesh&&!impacted){
         fallingMesh.position.x=(frame.px||0)*0.05;
         fallingMesh.position.y=pct*visualH;
         fallingMesh.position.z=(frame.pz||0)*0.05;
@@ -1646,9 +1651,9 @@
       highlightAccum+=dt; if(highlightAccum>=0.1){highlightTable(playHead);highlightAccum=0;}
       needsRender=true;
 
-      if(playHead>=totalSim&&!impacted){
-        impacted=true; playing=false;
-        moObjects.forEach(o=>{if(o.mesh)o.mesh.visible=false;});
+      // 주 물체 착지 시 충돌 이펙트 (부가 오브젝트는 계속 낙하)
+      if(playHead>=mainFallTime&&!impacted){
+        impacted=true;
         skyMat.uniforms.altitudeFrac.value=0;
         const dr=simResult.impactData?simResult.impactData.destructionRatio:0;
         const withstood = !simResult.impactData || dr<=0.001;
@@ -1675,6 +1680,11 @@
           }
         }
         drawGraph(activeTab);
+      }
+      // 모든 오브젝트(주 + 부가)가 착지하면 재생 종료 및 정리
+      if(playHead>=totalSim&&impacted){
+        playing=false;
+        moObjects.forEach(o=>{if(o.mesh)o.mesh.visible=false;});
       }
     }
 
