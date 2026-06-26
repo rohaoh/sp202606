@@ -42,9 +42,11 @@ npm run dist
 
 `dist/` 폴더에 설치 파일(`.exe`)이 생성됩니다.
 
-> ⚠️ **GLB 모델 로딩을 위해 `asar: false`로 패키징합니다** (`package.json`의 `build.asar`).
-> `.asar` 아카이브 안에서는 Chromium이 `three`의 ES 모듈을 동적으로 fetch하지 못해 GLB 로더가
-> 실패합니다. `asar: false`면 `node_modules`가 실제 파일로 풀려 정상 로드됩니다.
+> ⚠️ **GLB 모델 로딩 안정화**: 패키지된 앱은 `file://` 대신 커스텀 `app://` 프로토콜로 로드합니다
+> (`main.js`). `file://`에서는 중첩 import가 있는 ES 모듈(`GLTFLoader.js` 등)을 Chromium이 동적
+> import하지 못해 *"Failed to fetch dynamically imported module"* 오류가 납니다. `standard`+`secure`
+> 커스텀 프로토콜로 로드하면 http처럼 동작해 ESM 모듈 그래프가 정상 로드됩니다.
+> `node_modules`를 실제 파일로 풀기 위해 `asar: false`도 함께 유지합니다 (`package.json`의 `build.asar`).
 > 이미 `.exe`를 만든 적이 있다면 이 설정 반영 후 **`npm run dist`를 다시 실행**하세요.
 
 ---
