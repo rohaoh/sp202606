@@ -5,8 +5,9 @@
   "main": "main.js",
   "scripts": {
     "build-addon": "cmake-js compile",
-    "start": "electron .",
-    "dist": "electron-builder --win --x64"
+    "bundle": "node scripts/bundle.js",
+    "start": "node scripts/bundle.js && electron .",
+    "dist": "node scripts/bundle.js && electron-builder --win --x64"
   },
   "dependencies": {
     "node-addon-api": "^7.0.0",
@@ -14,6 +15,7 @@
   },
   "devDependencies": {
     "cmake-js": "^7.3.0",
+    "esbuild": "^0.21.0",
     "electron": "^31.0.0",
     "electron-builder": "^24.0.0"
   },
@@ -27,7 +29,7 @@
     "productName": "Physics Simulator",
     "asar": false,
     "win": { "target": "nsis" },
-    "files": ["**/*", "!node_modules/.cache"],
+    "files": ["**/*", "!node_modules/.cache", "!renderer.js"],
     "extraResources": [{ "from": "build/Release/physics.node", "to": "physics.node" }]
   }
 }
