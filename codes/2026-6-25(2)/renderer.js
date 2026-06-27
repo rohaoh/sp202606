@@ -1897,11 +1897,12 @@
           const p2=Math.max(0,Math.min(1,fr2.h/currentH0));
           const ox=(i+1)*5+(fr2.px||0)*0.05;
           o.mesh.position.set(ox, baseY+p2*visualH, 0);
-          o.mesh.rotation.x+=0.05;
+          const airborne=p2>0.001;
+          if(airborne) o.mesh.rotation.x+=0.05;
           // GLB 메시가 있으면 구와 동일 위치에 동기화
           if(o.glbMesh){
             o.glbMesh.position.set(ox, baseY+p2*visualH, 0);
-            o.glbMesh.rotation.y+=0.05;
+            if(airborne) o.glbMesh.rotation.y+=0.05;
           }
         });
       }
@@ -1952,13 +1953,10 @@
         }
         drawGraph(activeTab);
       }
-      // 모든 오브젝트(주 + 부가)가 착지하면 재생 종료 및 정리
+      // 모든 오브젝트(주 + 부가)가 착지하면 재생 종료
+      // moObjects 는 착지 위치(지면)에 그대로 남겨둠 — Reset 시 정리됨
       if(playHead>=totalSim&&impacted){
         playing=false;
-        moObjects.forEach(o=>{
-          if(o.mesh) o.mesh.visible=false;
-          if(o.glbMesh) o.glbMesh.visible=false;
-        });
       }
     }
 
