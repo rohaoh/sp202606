@@ -8,7 +8,6 @@ discussions->please vote for programming language<br>
 
 fast link : https://github.com/rohaoh/sp202606/discussions/2<br>
 <h3>information</h3>
-code run in https://replit.com<br>
-our replit project link:(please wait for creation) (need acess for editing)<br>
+ 
 <br>
 more help in 010-2995-1662 or rohaoh@gmail.com<br>
