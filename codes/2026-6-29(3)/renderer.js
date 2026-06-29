@@ -2268,6 +2268,8 @@
     } else if(key==='alwaysTraj'||key==='alwaysSettings'){
       applyViewLayout();
     }
+    if(typeof syncMenubar==='function') syncMenubar();
+    scheduleSnapshot();
   }
   // 패널 상시 표시 레이아웃 적용
   function applyViewLayout(){
@@ -2311,6 +2313,52 @@
     applyViewLayout();
     scheduleSnapshot();
   }
+
+  // ── 창 안 메뉴바(File/Edit/View) 연결 ──
+  // 클릭이 사용자 제스처라 파일 대화상자/창 열기가 확실히 동작한다. (네이티브 메뉴와 병행)
+  function setupMenubar(){
+    const bar=document.getElementById('menubar'); if(!bar) return;
+    bar.querySelectorAll('.menu').forEach(m=>{
+      m.addEventListener('click',e=>{
+        if(e.target.closest('.menu-item, .menu-check')) return; // 항목 클릭은 아래에서 처리
+        const wasOpen=m.classList.contains('open');
+        bar.querySelectorAll('.menu').forEach(x=>x.classList.remove('open'));
+        if(!wasOpen) m.classList.add('open');
+        e.stopPropagation();
+      });
+    });
+    document.addEventListener('click',()=>bar.querySelectorAll('.menu').forEach(x=>x.classList.remove('open')));
+    bar.querySelectorAll('.menu-item').forEach(it=>{
+      it.addEventListener('click',e=>{
+        e.stopPropagation();
+        bar.querySelectorAll('.menu').forEach(x=>x.classList.remove('open'));
+        if(it.classList.contains('disabled')) return;
+        const act=it.dataset.act, win=it.dataset.win;
+        if(act==='upload-glb'){ const inp=$('file-shape-glb')||$('file-stl'); if(inp) inp.click(); }
+        else if(act==='upload-stl'){ if($('file-stl')) $('file-stl').click(); }
+        else if(win){
+          if(win==='results' && window.appBridge){ window.appBridge.openWindow('results'); window.appBridge.showResults(buildResultData(thermalFailed)); }
+          else if(window.appBridge){ window.appBridge.openWindow(win); }
+          else { toast('별도 창은 Electron 앱에서만 열립니다.', 'info', 2500); }
+        }
+      });
+    });
+    const mvG=$('mv-graph'), mvT=$('mv-traj'), mvS=$('mv-settings');
+    if(mvG) mvG.addEventListener('change',()=>applyViewSetting('alwaysGraph',mvG.checked));
+    if(mvT) mvT.addEventListener('change',()=>applyViewSetting('alwaysTraj',mvT.checked));
+    if(mvS) mvS.addEventListener('change',()=>applyViewSetting('alwaysSettings',mvS.checked));
+    syncMenubar();
+  }
+  function syncMenubar(){
+    const mvG=$('mv-graph'), mvT=$('mv-traj'), mvS=$('mv-settings');
+    if(mvG) mvG.checked=view.alwaysGraph;
+    if(mvT) mvT.checked=view.alwaysTraj;
+    if(mvS) mvS.checked=view.alwaysSettings;
+    const go=$('mv-graph-open'), to=$('mv-traj-open');
+    if(go) go.classList.toggle('disabled', view.alwaysGraph);   // 상시 표시 중이면 팝업 비활성
+    if(to) to.classList.toggle('disabled', view.alwaysTraj);
+  }
+  setupMenubar();
 
   // ── Animation loop ──
   let cloudTick=0;

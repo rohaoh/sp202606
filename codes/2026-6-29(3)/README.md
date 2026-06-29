@@ -120,6 +120,23 @@ renderer.js      ← UI 로직 + Three.js 3D 애니메이션 + 물리 계산
 
 ---
 
+## 2026-6-29(3) 변경 사항 (메뉴 실제 동작 — 창 안 HTML 메뉴바 추가)
+
+`2026-6-29(2)` 기반. (2)에서 추가한 메뉴(File/Edit/View)가 동작하지 않던 문제를 해결.
+
+- **원인**: OS 네이티브 메뉴는 환경에 따라 표시/클릭이 불안정하고, File 업로드는 **사용자 제스처가 아니면**(IPC로 트리거) 파일 대화상자가 차단되어 열리지 않음. 그래서 메뉴 항목들이 "작동 안 하는" 것처럼 보였음.
+- **해결**: 창 상단에 **HTML 메뉴바(File / Edit / View)** 를 추가. 클릭이 곧 사용자 제스처라 다음이 확실히 동작함:
+  - **File → Upload GLB / STL**: 숨겨진 파일 입력을 직접 클릭 → 파일 대화상자가 정상적으로 열림.
+  - **Edit → Preset / Falling / Target / Initial / Others**: `open-window` IPC 로 **별도 창**을 연다(창 밖 자유 이동 가능, 유지).
+  - **View → Always show graph / trajectory / settings**: 체크박스로 패널 상시 표시 토글(그래프 ON 시 실시간 자동), `Graph…` / `Trajectory data…` 팝업은 상시 표시 중이면 비활성. `Show result window now` 로 결과창 열기.
+- 설정 변경은 (2)와 동일하게 **메인 렌더러가 단일 출처**이며 별도 창과 IPC 로 양방향 동기화됨. 메뉴바 체크 상태도 다른 창에서 바뀌면 자동 반영(`syncMenubar`).
+- 네이티브 메뉴(`Menu.setApplicationMenu`)도 병행 유지하되, **실동작의 기준은 창 안 HTML 메뉴바**.
+- 신규 IPC: `open-window`(렌더러→메인, 별도 창 열기). `appBridge.openWindow(panel)` 추가.
+
+> C++ 물리 코드 변경 없음. 새 폴더 첫 빌드 시 `npm install` + `npm run build-addon` 후 실행.
+
+---
+
 ## 2026-6-29(2) 변경 사항 (대규모: 네이티브 메뉴/별도 창 · 결과창 · 열파괴 · 재료별 파편 등)
 
 `2026-6-29(1)` 기반. UI/UX와 물리 표현을 크게 개편.

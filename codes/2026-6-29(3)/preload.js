@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('physics', {
 contextBridge.exposeInMainWorld('appBridge', {
     sendSnapshot:    (snap) => ipcRenderer.send('settings:snapshot', snap),   // 설정 스냅샷 push
     showResults:     (data) => ipcRenderer.send('results:show', data),        // 결과창 표시 요청
+    openWindow:      (panel)=> ipcRenderer.send('open-window', { panel }),     // 별도 설정/결과 창 열기
     onMenuUpload:    (cb)   => ipcRenderer.on('menu:upload', (_e, p) => cb(p)),
     onSettingsApply: (cb)   => ipcRenderer.on('settings:apply', (_e, c) => cb(c)),
     onResultsAction: (cb)   => ipcRenderer.on('results:action', (_e, a) => cb(a)),

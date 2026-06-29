@@ -241,6 +241,16 @@ ipcMain.on('results:show', (_e, data) => {
 // 결과창이 로드된 뒤 마지막 데이터를 요청할 수 있게.
 ipcMain.handle('results:get', () => lastSnapshot.lastResult || null);
 
+// 창 안 메뉴바에서 별도 창 열기 요청 (사용자 제스처 기반 → 확실히 동작).
+const PANEL_TITLES = {
+    preset: 'Preset', falling: 'Falling Object', target: 'Target Object',
+    initial: 'Initial Conditions', others: 'Other Settings', graph: 'Graph', trajectory: 'Trajectory Data',
+};
+ipcMain.on('open-window', (_e, { panel } = {}) => {
+    if (panel === 'results') openResultsWindow();
+    else if (panel) openSettingWindow(panel, PANEL_TITLES[panel] || panel);
+});
+
 ipcMain.handle('get-falling-objects', () => physics.getFallingObjects());
 ipcMain.handle('get-target-objects',  () => physics.getTargetObjects());
 

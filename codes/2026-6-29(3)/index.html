@@ -27,9 +27,21 @@ body {
   background: var(--bg); color: var(--text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   height: 100vh;
-  display: grid; grid-template-rows: auto auto 1fr auto;
+  display: grid; grid-template-rows: auto auto auto 1fr auto;
   overflow: hidden; font-size: 13px;
 }
+/* ── Menu bar (창 안 File/Edit/View) ── */
+.menubar { display:flex; align-items:stretch; background:#0b0f16; border-bottom:1px solid var(--border); height:30px; font-size:12px; user-select:none; position:relative; z-index:50; }
+.menu { position:relative; display:flex; align-items:center; padding:0 12px; cursor:pointer; color:var(--text); }
+.menu:hover { background:#1f2630; }
+.menu-pop { display:none; position:absolute; top:100%; left:0; min-width:230px; background:#161b22; border:1px solid var(--border); border-radius:0 0 8px 8px; box-shadow:0 8px 24px rgba(0,0,0,.5); padding:5px 0; z-index:60; }
+.menu.open .menu-pop { display:block; }
+.menu-item { padding:7px 14px; white-space:nowrap; color:var(--text); }
+.menu-item:hover { background:var(--blue); color:#fff; }
+.menu-item.disabled { color:var(--muted); pointer-events:none; opacity:.5; }
+.menu-check { display:flex; align-items:center; gap:8px; padding:7px 14px; white-space:nowrap; cursor:pointer; }
+.menu-check:hover { background:#1f2630; }
+.menu-sep { height:1px; background:var(--border); margin:5px 0; }
 /* ── Metric bar ── */
 .metric-bar { display: grid; grid-template-columns: repeat(4,1fr); border-bottom: 1px solid var(--border); background: var(--panel); }
 .mc { padding: 10px 14px; border-right: 1px solid var(--border); }
@@ -189,6 +201,38 @@ body {
 </style>
 </head>
 <body>
+
+<!-- ══ 창 안 메뉴바 (File / Edit / View) — 네이티브 메뉴와 동일 동작, 클릭이 사용자 제스처라 확실히 작동 ══ -->
+<div class="menubar" id="menubar">
+  <div class="menu" data-menu="file">File
+    <div class="menu-pop">
+      <div class="menu-item" data-act="upload-glb">Upload GLB file…</div>
+      <div class="menu-item" data-act="upload-stl">Upload STL file…</div>
+    </div>
+  </div>
+  <div class="menu" data-menu="edit">Edit
+    <div class="menu-pop">
+      <div class="menu-item" data-win="preset">Preset…</div>
+      <div class="menu-item" data-win="falling">Falling object…</div>
+      <div class="menu-item" data-win="target">Target object…</div>
+      <div class="menu-item" data-win="initial">Initial conditions…</div>
+      <div class="menu-item" data-win="others">Others…</div>
+    </div>
+  </div>
+  <div class="menu" data-menu="view">View
+    <div class="menu-pop">
+      <label class="menu-check"><input type="checkbox" id="mv-graph"> Always show graph</label>
+      <div class="menu-item" data-win="graph" id="mv-graph-open">Graph…</div>
+      <div class="menu-sep"></div>
+      <label class="menu-check"><input type="checkbox" id="mv-traj"> Always show trajectory data</label>
+      <div class="menu-item" data-win="trajectory" id="mv-traj-open">Trajectory data…</div>
+      <div class="menu-sep"></div>
+      <label class="menu-check"><input type="checkbox" id="mv-settings"> Always show settings panel</label>
+      <div class="menu-sep"></div>
+      <div class="menu-item" data-win="results">Show result window now</div>
+    </div>
+  </div>
+</div>
 
 <div class="metric-bar">
   <div class="mc"><div class="mc-label"><span class="dot d-blue"></span>Terminal Velocity</div><div><span class="mc-val" id="m-vt">—</span><span class="mc-unit" id="u-vt">m/s</span></div></div>
