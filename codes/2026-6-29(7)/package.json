@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "node-addon-api": "^7.0.0",
-    "three": "^0.165.0"
+    "three": "^0.165.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "cmake-js": "^7.3.0",

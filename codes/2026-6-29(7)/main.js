@@ -310,6 +310,30 @@ ipcMain.handle('step-fragments', (_e, dt, gravity) => {
 // 업로드한 GLB/STL 파일을 앱의 assets 폴더로 복사한다.
 // 이렇게 하면 blob URL 대신 로컬 HTTP 서버에서 바로 서빙되어 로드 지연이 사라지고,
 // 다음 실행 때 프리셋처럼 재사용할 수도 있다. 반환값의 path 는 'assets/<파일명>'.
+ipcMain.handle('export-xlsx', async (_e, { headers, rows, filename }) => {
+    try {
+        const XLSX = require('xlsx');
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        // 각 열 너비 = 헤더·데이터 중 가장 긴 문자열 + 여백
+        ws['!cols'] = headers.map((h, i) => {
+            const maxLen = Math.max(h.length, ...rows.map(r => String(r[i] ?? '').length));
+            return { wch: maxLen + 2 };
+        });
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Trajectory');
+        const { canceled, filePath } = await dialog.showSaveDialog(mainWin, {
+            defaultPath: filename || 'sim-trajectory.xlsx',
+            filters: [{ name: 'Excel 파일', extensions: ['xlsx'] }],
+        });
+        if (canceled || !filePath) return { ok: false };
+        const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
+        fs.writeFileSync(filePath, buf);
+        return { ok: true };
+    } catch (e) {
+        return { ok: false, error: e.message };
+    }
+});
+
 ipcMain.handle('copy-to-assets', (_e, name, bytes) => {
     try {
         const assetsDir = path.join(__dirname, 'assets');

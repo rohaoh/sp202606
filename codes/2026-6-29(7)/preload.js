@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld('appBridge', {
     onSettingsApply: (cb)   => ipcRenderer.on('settings:apply', (_e, c) => cb(c)),
     onResultsAction: (cb)   => ipcRenderer.on('results:action', (_e, a) => cb(a)),
     onResultsRequest:(cb)   => ipcRenderer.on('results:request', () => cb()),
+    exportXlsx:      (payload) => ipcRenderer.invoke('export-xlsx', payload),
 });

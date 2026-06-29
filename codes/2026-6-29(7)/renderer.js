@@ -1872,21 +1872,25 @@
     const link=document.createElement('a');
     link.download=`sim-${activeTab}.png`; link.href=graphCanvas.toDataURL('image/png'); link.click();
   }
-  function exportCSV(){
+  async function exportXLSX(){
     if(!simResult)return;
     const vt=simResult.terminalVelocity||0;
-    const heatSuffix=features.heat?',SurfaceT(°C),HeatFlux(kW/m2)':'';
-    const header='Time(s),Altitude(m),Velocity(m/s),TerminalVel%,Acceleration(m/s2),AirDensity(kg/m3),Atmosphere,DriftX(m),DriftZ(m)'+heatSuffix;
+    const headers=['Time(s)','Altitude(m)','Velocity(m/s)','TerminalVel%',
+      'Acceleration(m/s2)','AirDensity(kg/m3)','Atmosphere','DriftX(m)','DriftZ(m)'];
+    if(features.heat){headers.push('SurfaceT(°C)','HeatFlux(kW/m2)');}
     const rows=simResult.frames.map(f=>{
       const localVt=vt>0&&(f.rho||0)>0?vt*Math.sqrt(1.225/f.rho):vt;
       const pct=localVt>0?Math.min(100,Math.abs(f.v)/localVt*100):0;
-      const heatData=features.heat?`,${Math.round(f.T_surface||0)},${((f.heatFlux||0)/1000).toFixed(2)}`:'';
-      return `${f.t.toFixed(3)},${f.h.toFixed(2)},${Math.abs(f.v).toFixed(3)},${pct.toFixed(1)},${f.a.toFixed(4)},${(f.rho||1.225).toFixed(5)},${f.atm||'Troposphere'},${(f.px||0).toFixed(2)},${(f.pz||0).toFixed(2)}${heatData}`;
+      const row=[
+        +f.t.toFixed(3), +f.h.toFixed(2), +Math.abs(f.v).toFixed(3), +pct.toFixed(1),
+        +f.a.toFixed(4), +(f.rho||1.225).toFixed(5), f.atm||'Troposphere',
+        +(f.px||0).toFixed(2), +(f.pz||0).toFixed(2),
+      ];
+      if(features.heat){row.push(Math.round(f.T_surface||0), +((f.heatFlux||0)/1000).toFixed(2));}
+      return row;
     });
-    const blob=new Blob([header+'\n'+rows.join('\n')],{type:'text/csv'});
-    const link=document.createElement('a');
-    link.download='sim-trajectory.csv'; link.href=URL.createObjectURL(blob);
-    link.click(); setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+    const res=await window.appBridge.exportXlsx({headers,rows,filename:'sim-trajectory.xlsx'});
+    if(res&&!res.ok&&res.error)console.warn('[exportXLSX]',res.error);
   }
   function collectSettings() {
     return {
@@ -1950,7 +1954,7 @@
     reader.readAsText(f); fileJson.value='';
   });
   btnExportPng.addEventListener('click',exportPNG);
-  btnExportCsv.addEventListener('click',exportCSV);
+  btnExportCsv.addEventListener('click',exportXLSX);
   btnSaveJson.addEventListener('click',saveJSON);
   btnLoadJson.addEventListener('click',()=>fileJson.click());
 
@@ -2365,7 +2369,7 @@
     window.appBridge.onResultsAction(a=>{
       if(!a) return;
       if(a.action==='png') exportPNG();
-      else if(a.action==='csv') exportCSV();
+      else if(a.action==='csv') exportXLSX();
     });
     window.appBridge.onResultsRequest(()=>{ if(window.appBridge) window.appBridge.showResults(buildResultData(thermalFailed)); });
     // realtime 토글 버튼이 눌리면 view.realtime 동기화
