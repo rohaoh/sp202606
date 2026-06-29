@@ -32,8 +32,9 @@ function render(d) {
   rows.innerHTML = r.map(([k, v]) => `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`).join('');
 }
 
-document.getElementById('btn-png').addEventListener('click', () => window.resultsBridge.action({ action: 'png' }));
-document.getElementById('btn-csv').addEventListener('click', () => window.resultsBridge.action({ action: 'csv' }));
+document.getElementById('btn-png').addEventListener('click',  () => window.resultsBridge.action({ action: 'png' }));
+document.getElementById('btn-xlsx').addEventListener('click', () => window.resultsBridge.action({ action: 'xlsx' }));
+document.getElementById('btn-csv').addEventListener('click',  () => window.resultsBridge.action({ action: 'csv' }));
 document.getElementById('btn-close').addEventListener('click', () => window.close());
 
 window.resultsBridge.onData(render);
