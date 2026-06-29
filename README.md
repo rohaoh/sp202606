@@ -2,12 +2,10 @@
 
 
 <h3>what to do</h3>
-discussions->please vote for programming language<br>
 
-[![IMG-0470.jpg](https://i.postimg.cc/25MnVDYD/IMG-0470.jpg)](https://postimg.cc/R31WD2qs)
-
-fast link : https://github.com/rohaoh/sp202606/discussions/2<br>
+  
 <h3>information</h3>
- 
+
+  
 <br>
 more help in 010-2995-1662 or rohaoh@gmail.com<br>
