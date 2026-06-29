@@ -1714,7 +1714,9 @@
     for(let i=0;i<frames.length;i++){
       const f=frames[i]; if(f.t<nextT-0.001)continue;
       nextT=Math.round((f.t+STEP)*10)/10;
-      const pct=vt>0?Math.min(999,Math.abs(f.v)/vt*100):0;
+      // 고도별 종단속도 = vt_ground × √(ρ_ground / ρ_local). 현재 고도 기준이므로 100% 이하로 유지됨.
+      const localVt=vt>0&&(f.rho||0)>0?vt*Math.sqrt(1.225/f.rho):vt;
+      const pct=localVt>0?Math.min(100,Math.abs(f.v)/localVt*100):0;
       const barW=Math.min(80,pct*0.8);
       const barColor=pct<50?'#58a6ff':pct<90?'#f0a500':'#f85149';
       const atmColor=ATM_COLOR[f.atm]||'#6e7681';
@@ -1876,7 +1878,8 @@
     const heatSuffix=features.heat?',SurfaceT(°C),HeatFlux(kW/m2)':'';
     const header='Time(s),Altitude(m),Velocity(m/s),TerminalVel%,Acceleration(m/s2),AirDensity(kg/m3),Atmosphere,DriftX(m),DriftZ(m)'+heatSuffix;
     const rows=simResult.frames.map(f=>{
-      const pct=vt>0?Math.min(999,Math.abs(f.v)/vt*100):0;
+      const localVt=vt>0&&(f.rho||0)>0?vt*Math.sqrt(1.225/f.rho):vt;
+      const pct=localVt>0?Math.min(100,Math.abs(f.v)/localVt*100):0;
       const heatData=features.heat?`,${Math.round(f.T_surface||0)},${((f.heatFlux||0)/1000).toFixed(2)}`:'';
       return `${f.t.toFixed(3)},${f.h.toFixed(2)},${Math.abs(f.v).toFixed(3)},${pct.toFixed(1)},${f.a.toFixed(4)},${(f.rho||1.225).toFixed(5)},${f.atm||'Troposphere'},${(f.px||0).toFixed(2)},${(f.pz||0).toFixed(2)}${heatData}`;
     });
