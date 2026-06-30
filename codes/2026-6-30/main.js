@@ -25,6 +25,10 @@ const MIME = {
 
 let serverPort = null;
 
+/**
+ * HTTP 개발 서버를 시작하여 ESM 모듈 동적 import를 지원합니다.
+ * @returns {Promise<number>} 서버가 바인드된 포트 번호
+ */
 function startDevServer() {
     return new Promise((resolve, reject) => {
         const server = http.createServer((req, res) => {
@@ -52,8 +56,12 @@ function startDevServer() {
     });
 }
 
-// cmake-js는 환경/생성기에 따라 .node 파일을 build/Release, build/Debug,
-// 혹은 build/ 바로 아래에 만든다. 여러 후보 경로를 차례로 시도한다.
+/**
+ * C++ 물리 엔진 네이티브 모듈을 로드합니다.
+ * cmake-js의 빌드 환경에 따라 여러 경로를 시도합니다.
+ * @returns {Object} physics 네이티브 모듈
+ * @throws {Error} physics.node를 찾을 수 없을 때
+ */
 function loadPhysics() {
     const candidates = [
         path.join(__dirname, 'build', 'Release', 'physics.node'),

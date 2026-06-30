@@ -7,7 +7,9 @@
     "build-addon": "cmake-js compile",
     "bundle": "node scripts/bundle.js",
     "start": "node scripts/bundle.js && electron .",
-    "dist": "node scripts/bundle.js && electron-builder --win --x64"
+    "dist": "npm run build-addon && node scripts/bundle.js && electron-builder --win --x64",
+    "lint": "eslint . --ext .js --ignore-pattern node_modules --ignore-pattern renderer.bundle.js",
+    "format": "prettier --write \"**/*.js\" --ignore-path .gitignore"
   },
   "dependencies": {
     "node-addon-api": "^7.0.0",
@@ -19,7 +21,9 @@
     "cmake-js": "^7.3.0",
     "esbuild": "^0.21.0",
     "electron": "^31.0.0",
-    "electron-builder": "^24.0.0"
+    "electron-builder": "^24.0.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5"
   },
   "cmake-js": {
     "runtime": "electron",

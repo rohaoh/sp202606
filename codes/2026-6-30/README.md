@@ -43,10 +43,30 @@ npm run dist
 
 `dist/` 폴더에 설치 파일(`.exe`)이 생성됩니다.
 
-> ⚠️ **GLB 모델 로딩 방식**: `esbuild`가 `renderer.js` + `three.js` + `GLTFLoader` 전체를 빌드 시점에
+> ⚠️ **자동 빌드 순서**: `npm run dist`는 다음을 자동으로 실행합니다:
+> 1. `npm run build-addon` (C++ 물리 엔진 컴파일)
+> 2. `node scripts/bundle.js` (renderer 번들링)
+> 3. `electron-builder` (exe 생성)
+>
+> **GLB 모델 로딩 방식**: `esbuild`가 `renderer.js` + `three.js` + `GLTFLoader` 전체를 빌드 시점에
 > `renderer.bundle.js` 한 파일로 번들링합니다. 패키지 앱에서 런타임 dynamic import 자체를 없애므로
 > *"Failed to fetch dynamically imported module"* 오류가 원천 차단됩니다.
-> **`npm run dist` 전에 `npm install`을 반드시 실행**해야 esbuild가 설치됩니다.
+> **`npm install`을 반드시 실행**해야 esbuild와 cmake-js가 설치됩니다.
+
+---
+
+## 코드 품질 도구
+
+```bash
+# ESLint로 코드 스타일 검사
+npm run lint
+
+# Prettier로 코드 자동 포맷팅
+npm run format
+```
+
+> `.eslintrc.json` 과 `.prettierrc.json` 로 설정을 관리합니다.
+> renderer.bundle.js 는 자동 제외됩니다.
 
 ---
 

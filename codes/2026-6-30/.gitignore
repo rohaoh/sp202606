@@ -1,0 +1,7 @@
+node_modules/
+build/
+dist/
+*.node
+*.log
+.DS_Store
+renderer.bundle.js

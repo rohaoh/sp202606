@@ -13,6 +13,11 @@ esbuild.build({
   platform: 'browser',
   target: ['chrome126'], // Electron 31
   external: ['electron'], // preload에서 주입되므로 번들에 포함하지 않음
+  sourcemap: false,
+  minify: false,
 }).then(() => {
-  console.log('renderer.bundle.js 빌드 완료');
-}).catch(() => process.exit(1));
+  console.log('✓ renderer.bundle.js 빌드 완료');
+}).catch((error) => {
+  console.error('✗ 번들링 실패:', error.message);
+  process.exit(1);
+});
