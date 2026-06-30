@@ -5,27 +5,14 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 
-Promise.all([
-  // Renderer: browser platform
-  esbuild.build({
-    entryPoints: [path.join(root, 'renderer.js')],
-    bundle: true,
-    outfile: path.join(root, 'renderer.bundle.js'),
-    format: 'iife',
-    platform: 'browser',
-    target: ['chrome126'], // Electron 31
-  }),
-
-  // Main: node platform (fs, path 포함)
-  esbuild.build({
-    entryPoints: [path.join(root, 'main.js')],
-    bundle: true,
-    outfile: path.join(root, 'main.bundle.js'),
-    format: 'cjs',
-    platform: 'node',
-    target: ['node20'],
-    external: ['electron'], // electron은 runtime에서 제공
-  }),
-]).then(() => {
-  console.log('renderer.bundle.js, main.bundle.js 빌드 완료');
+esbuild.build({
+  entryPoints: [path.join(root, 'renderer.js')],
+  bundle: true,
+  outfile: path.join(root, 'renderer.bundle.js'),
+  format: 'iife',
+  platform: 'browser',
+  target: ['chrome126'], // Electron 31
+  external: ['electron'], // preload에서 주입되므로 번들에 포함하지 않음
+}).then(() => {
+  console.log('renderer.bundle.js 빌드 완료');
 }).catch(() => process.exit(1));
