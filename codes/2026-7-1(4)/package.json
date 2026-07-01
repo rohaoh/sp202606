@@ -1,6 +1,6 @@
 {
   "name": "physics-simulator",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "description": "Terminal velocity & impact physics simulator",
   "main": "main.js",
   "scripts": {
