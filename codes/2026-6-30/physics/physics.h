@@ -39,6 +39,10 @@ struct SimInput {
     double launchAzimuth; // 수평 방향 °, 0 = 북쪽
     // [F12] Terrain
     double terrainSlope;  // 경사각 °, 0 = 수평
+    // 신규: 물리 개선
+    double waterDepth;    // 물 깊이 (m), 0 = 공기 중
+    double bounceDamping; // 바운스 에너지 손실 (0-1), 0.5 = 50% 손실
+    double latitude;      // 위도 (°), Coriolis 효과용
 };
 
 struct PhysicsFrame {
@@ -51,6 +55,10 @@ struct PhysicsFrame {
     std::string atmosphere;
     double posX;
     double posZ;
+    // 신규: 회전 정보
+    double spinRate;      // 회전 각속도 (rad/s)
+    double reynoldsNumber; // Reynolds 수
+    double energyLoss;    // 에너지 손실 누적 (J)
 };
 
 struct ImpactResult {
@@ -63,6 +71,11 @@ struct ImpactResult {
     double destructionRatio;
     std::string destructionLevel;
     std::vector<PhysicsFrame> trajectory;
+    // 신규: 바운스 및 고급 물리
+    double bounceVelocity;   // 바운스 후 속도
+    double bounceCount;      // 바운스 횟수
+    double totalEnergyLoss;  // 전체 에너지 손실
+    double coriolisDeflection; // Coriolis 편향 (m)
 };
 
 struct Fragment {

@@ -92,11 +92,63 @@ double PhysicsEngine::calcTerminalVelocityAtAlt(
     return std::sqrt((2.0 * obj.mass * gravity) / (rho * obj.cd * obj.area));
 }
 
+// ─── 새로운 헬퍼 함수들 ───
+
+// Reynolds 수 계산
+static double calcReynoldsNumber(double velocity, double diameter, double rho, double tempOffset) {
+    if (rho < 1e-10) return 1e-5;
+    // 동점성 계수 (m²/s) at sea level, 15°C
+    double T = 288.15 + tempOffset;
+    double mu = 1.81e-5 * std::pow(T / 288.15, 1.5) * (288.15 + 110.4) / (T + 110.4);
+    double nu = mu / rho;
+    return std::abs(velocity) * diameter / nu;
+}
+
+// Reynolds 수 기반 드래그 계수 조정
+static double adjustCdForReynolds(double baseCd, double Re) {
+    // 저 Reynolds 수에서는 드래그가 더 크다
+    if (Re < 1.0) return baseCd * (24.0 / (Re + 0.1) + 0.5);
+    if (Re < 1000.0) {
+        double correction = 1.0 + 0.15 * std::pow(Re, 0.681);
+        return baseCd * correction;
+    }
+    return baseCd; // 고 Reynolds 수에서는 기본값
+}
+
+// 물 저항 계산
+static double calcWaterDrag(double velocity, double depth, double rho) {
+    if (depth <= 0) return 0.0;
+    double waterRho = 1000.0; // 물의 밀도
+    double submerged = std::min(1.0, depth / 1.0); // 최대 1m 침수로 정규화
+    double waterDragFactor = 20.0 * submerged; // 공기 저항보다 20배 크다
+    return waterDragFactor * waterRho * velocity * std::abs(velocity);
+}
+
+// Coriolis 효과 계산
+static double calcCoriolisAccel(double velocity, double latitude, int axis) {
+    const double OMEGA_EARTH = 7.2921e-5; // 지구 자전각속도 (rad/s)
+    double lat_rad = latitude * M_PI / 180.0;
+    double Omega_z = OMEGA_EARTH * std::sin(lat_rad);
+    double Omega_x = OMEGA_EARTH * std::cos(lat_rad);
+
+    if (axis == 0) return 2.0 * Omega_z * velocity; // X 축 (동쪽) 편향
+    if (axis == 1) return -2.0 * Omega_x * velocity; // Y 축 (남/북)
+    return 0.0;
+}
+
+// 고도별 중력 변화 (중요하지 않지만 정확성 향상)
+static double calcGravityAtAltitude(double alt, double lat) {
+    double lat_rad = lat * M_PI / 180.0;
+    double g0 = 9.780318 + 0.0053024 * std::sin(lat_rad) * std::sin(lat_rad);
+    g0 -= 0.0000058 * std::sin(2.0 * lat_rad) * std::sin(2.0 * lat_rad);
+    g0 -= 0.000000003 * alt;
+    return g0;
+}
+
 ImpactResult PhysicsEngine::simulate(const SimInput& input) {
     if (input.height <= 0)
         throw std::invalid_argument("Height must be greater than 0.");
 
-    const double g   = input.gravity;
     const FallingObject& obj = input.falling;
     const double dt  = 0.05;
     const double Wx  = input.windX;
@@ -111,54 +163,81 @@ ImpactResult PhysicsEngine::simulate(const SimInput& input) {
 
     // [F12] Slope: add gravity component along slope direction
     const double slopeRad    = input.terrainSlope * M_PI / 180.0;
-    const double g_vert_eff  = g * std::cos(slopeRad);
-    const double g_slope     = g * std::sin(slopeRad);
+    const double g_vert_eff  = input.gravity * std::cos(slopeRad);
+    const double g_slope     = input.gravity * std::sin(slopeRad);
 
     double altitude = input.height;
     double posX = 0.0, posZ = 0.0;
+    double spinRate = input.spinRate;
     double t = 0.0;
+    double totalEnergyLoss = 0.0;
 
     std::vector<PhysicsFrame> traj;
     traj.reserve(20000);
 
     while (altitude > 0.0 && t < 7200.0) {
         double rho = calcAirDensity(altitude, input.tempOffset, input.humidity);
+        // 신규: 고도별 중력 변화
+        double g_local = calcGravityAtAltitude(altitude, input.latitude);
 
-        // Use total relative velocity for drag — physically correct for 3-D flight.
-        // Per-axis independent drag overestimates force when both horizontal and
-        // vertical components are large (projectile / wind scenarios).
+        // Use total relative velocity for drag
         double vRelX   = vx - Wx;
         double vRelY   = vy;
         double vRelZ   = vz - Wz;
         double vRelMag = std::sqrt(vRelX*vRelX + vRelY*vRelY + vRelZ*vRelZ);
-        double dragBase = 0.5 * rho * obj.cd * obj.area * vRelMag; // F_drag / v_rel
+
+        // 신규: Reynolds 수 기반 드래그 계수 조정
+        double Re = calcReynoldsNumber(vRelMag, obj.radius * 2.0, rho, input.tempOffset);
+        double adjustedCd = adjustCdForReynolds(obj.cd, Re);
+        double dragBase = 0.5 * rho * adjustedCd * obj.area * vRelMag;
+
+        // 신규: 물 저항 추가
+        double waterDepth = std::max(0.0, input.waterDepth - (input.height - altitude));
+        double waterDragForce = 0.0;
+        if (waterDepth > 0.0) {
+            waterDragForce = calcWaterDrag(vRelMag, waterDepth, rho) / obj.mass;
+            dragBase += waterDragForce; // 물 저항을 드래그에 포함
+        }
 
         double accel_x = -(dragBase * vRelX) / obj.mass + g_slope;
-        double accel_y =  (obj.mass * g_vert_eff - dragBase * vRelY) / obj.mass;
+        double accel_y = -(dragBase * vRelY) / obj.mass - g_local;
         double accel_z = -(dragBase * vRelZ) / obj.mass;
 
+        // 신규: Coriolis 효과
+        accel_x += calcCoriolisAccel(vy, input.latitude, 0);
+        accel_y += calcCoriolisAccel(vx, input.latitude, 1);
+
         // [F7] Magnus effect: F = 0.5 * C_L * rho * A * omega * (spinAxis × v)
-        if (input.spinRate > 0.001) {
+        // 신규: 회전 감쇠 추가
+        if (spinRate > 0.001) {
             const double CL = 0.25;
-            double omega  = input.spinRate;
             double sx = input.spinAxisX, sy = input.spinAxisY, sz = input.spinAxisZ;
-            double fscale = 0.5 * CL * rho * obj.area * omega / obj.mass;
+            double fscale = 0.5 * CL * rho * obj.area * spinRate / obj.mass;
             accel_x += fscale * (sy * vz - sz * vy);
             accel_y += fscale * (sz * vx - sx * vz);
             accel_z += fscale * (sx * vy - sy * vx);
+
+            // 신규: 공기 저항으로 인한 회전 감쇠
+            spinRate *= std::exp(-rho * obj.area * dt / (obj.mass * 0.5));
         }
 
         PhysicsFrame frame;
-        frame.time       = t;
-        frame.velocity   = vy;
-        frame.altitude   = altitude;
-        frame.dragForce  = dragBase * vRelMag; // total drag magnitude = 0.5*rho*cd*A*v²
-        frame.netForce   = obj.mass * accel_y;
-        frame.airDensity = rho;
-        frame.atmosphere = getAtmosphereName(altitude);
-        frame.posX       = posX;
-        frame.posZ       = posZ;
+        frame.time         = t;
+        frame.velocity     = vy;
+        frame.altitude     = altitude;
+        frame.dragForce    = dragBase * vRelMag;
+        frame.netForce     = obj.mass * accel_y;
+        frame.airDensity   = rho;
+        frame.atmosphere   = getAtmosphereName(altitude);
+        frame.posX         = posX;
+        frame.posZ         = posZ;
+        frame.spinRate     = spinRate;
+        frame.reynoldsNumber = Re;
+        frame.energyLoss   = totalEnergyLoss;
         traj.push_back(frame);
+
+        // 신규: 에너지 손실 추적
+        double energyBefore = 0.5 * obj.mass * (vx*vx + vy*vy + vz*vz);
 
         vy       += accel_y * dt;
         altitude -= vy * dt;
@@ -166,11 +245,18 @@ ImpactResult PhysicsEngine::simulate(const SimInput& input) {
         vz       += accel_z * dt;
         posX     += vx * dt;
         posZ     += vz * dt;
+
+        double energyAfter = 0.5 * obj.mass * (vx*vx + vy*vy + vz*vz);
+        totalEnergyLoss += std::max(0.0, energyBefore - energyAfter);
+
         t        += dt;
     }
 
     double impactV = traj.empty() ? vy : traj.back().velocity;
-    return calcImpact(input, impactV, traj);
+    ImpactResult result = calcImpact(input, impactV, traj);
+    result.totalEnergyLoss = totalEnergyLoss;
+    result.coriolisDeflection = posX; // 동쪽 편향
+    return result;
 }
 
 ImpactResult PhysicsEngine::calcImpact(
@@ -221,6 +307,25 @@ ImpactResult PhysicsEngine::calcImpact(
     else if (destructionRatio < 0.80)  level = "Severe Damage";
     else                               level = "Total Destruction";
 
+    // 신규: 바운스 물리
+    double bounceVelocity = 0.0;
+    double bounceCount = 0.0;
+    double bounceDamping = std::clamp(input.bounceDamping, 0.0, 1.0);
+
+    // 바운스 계수 (파괴도에 따라 감소)
+    double coefficientOfRestitution = (1.0 - destructionRatio * 0.8) * (1.0 - bounceDamping);
+    if (coefficientOfRestitution > 0.05) {
+        bounceVelocity = std::abs(impactVelocity) * coefficientOfRestitution;
+        bounceCount = 1.0;
+
+        // 연쇄 바운스 (0.05 이하가 될 때까지)
+        double currentV = bounceVelocity;
+        while (currentV > 0.5 && bounceCount < 10.0) {
+            currentV *= coefficientOfRestitution;
+            bounceCount += 1.0;
+        }
+    }
+
     ImpactResult result;
     result.terminalVelocity = calcTerminalVelocityAtAlt(
         input.falling, 0, input.gravity, input.tempOffset, input.humidity);
@@ -232,6 +337,8 @@ ImpactResult PhysicsEngine::calcImpact(
     result.destructionRatio = destructionRatio;
     result.destructionLevel = level;
     result.trajectory       = traj;
+    result.bounceVelocity   = bounceVelocity;
+    result.bounceCount      = bounceCount;
     return result;
 }
 

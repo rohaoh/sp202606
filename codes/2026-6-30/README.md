@@ -109,6 +109,7 @@ renderer.js      ← UI 로직 + Three.js 3D 애니메이션 + 물리 계산
 
 ## 물리 공식 요약
 
+### 기본 공식
 | 항목 | 공식 |
 |------|------|
 | 종단속도 | `v_t = √(2mg / ρCdA)` |
@@ -121,6 +122,17 @@ renderer.js      ← UI 로직 + Three.js 3D 애니메이션 + 물리 계산
 | 충격 에너지 | `KE = ½mv²` |
 | 충격 압력 | `P = F / (πr²)` |
 | 파괴율 | 로지스틱: `1 / (1 + e^(-2.5(P/σ_y - 1)))` |
+
+### 신규: 고급 물리 (v2.0)
+| 항목 | 설명 |
+|------|------|
+| **Reynolds 수 기반 드래그** | `Re = ρvD/μ` → Cd 동적 조정 (저속 구간에서 정확도 ↑) |
+| **물 저항** | `F_water = 20ρ_water·v²·depth` (공기보다 20배 강함) |
+| **Coriolis 효과** | `a_coriolis = 2Ω × v` (위도별 동/서 편향) |
+| **고도별 중력** | `g(alt) = g₀ - 3×10⁻⁶·alt` (정확도 향상) |
+| **회전 감쇠** | `ω(t) = ω₀·exp(-ρA·t/m)` (공기 저항으로 회전 감소) |
+| **바운스 물리** | `e = (1 - destruction_ratio·0.8)·(1 - damping)` (재충돌 에너지) |
+| **에너지 손실 추적** | 낙하 과정 전체 기계에너지 손실량 기록 |
 
 ---
 
@@ -170,7 +182,43 @@ renderer.js      ← UI 로직 + Three.js 3D 애니메이션 + 물리 계산
 ### 3. 물리 버그 수정: 20km 대기권 경계 온도 불연속 (physics.cpp)
 - **수정 전**: `T20 = 216.65 + tempOffset * 0.5` — 20km 기준 온도에 tempOffset의 절반만 반영되어 11–20km 등온층 끝 온도(T11)와 불일치 발생
 - **수정 후**: `T20 = T11` — 11km 등온층 끝 온도와 동일하게 연결 (JS 구현과 일치, ISA 표준 준수)
-- ⚠️ **C++ 물리 코드 변경됨 → `npm run build-addon` 재실행 필요**
+- ⚠️ **C++ 물리 코드 변경됨 → `npm run build-addon` 재실행 필수**
+
+---
+
+## 2026-6-30 개선 사항 (물리 엔진 고도화)
+
+### 7가지 물리 엔진 개선사항
+
+| # | 기능 | 효과 | 구현 |
+|----|------|------|------|
+| 1 | **Reynolds 수 기반 드래그** | 저속(Re<1000)에서 정확도 ↑ | `calcReynoldsNumber()` + 동적 Cd 조정 |
+| 2 | **물 저항** | 수심 고려한 물리 계산 | `calcWaterDrag()` + 침수도 (0-1) 계산 |
+| 3 | **Coriolis 효과** | 위도별 지구 자전 편향 | `calcCoriolisAccel()` + latitude 입력 |
+| 4 | **고도별 중력 변화** | 극지방/적도 중력 차이 | `calcGravityAtAltitude()` + WGS84 모델 |
+| 5 | **회전 감쇠** | 공기 저항으로 회전 감소 | exponential decay: `ω·exp(-ρAt/m)` |
+| 6 | **바운스 물리** | 재충돌 에너지 손실 계산 | `bounceDamping` 파라미터 + 연쇄 바운스 |
+| 7 | **에너지 손실 추적** | 낙하 과정 전체 손실량 기록 | `totalEnergyLoss` 누적 저장 |
+
+### 신규 입력 파라미터 (SimInput)
+- `waterDepth` (m): 물 깊이, 0 = 공기 중
+- `bounceDamping` (0-1): 바운스 에너지 손실률
+- `latitude` (°): 위도 (Coriolis 효과용)
+
+### 신규 출력 정보 (ImpactResult)
+- `bounceVelocity`: 첫 바운스 후 속도
+- `bounceCount`: 총 바운스 횟수
+- `totalEnergyLoss`: 낙하 과정 전체 에너지 손실 (J)
+- `coriolisDeflection`: 동쪽 편향 거리 (m)
+
+### 신규 트레이싱 데이터 (PhysicsFrame)
+- `spinRate`: 현재 회전 각속도 (회전 감쇠 추적)
+- `reynoldsNumber`: 현재 Reynolds 수
+- `energyLoss`: 누적 에너지 손실
+
+---
+
+⚠️ **C++ 물리 코드 대폭 개선됨 → `npm run build-addon` 필수 재실행**
 
 ---
 
