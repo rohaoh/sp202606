@@ -1,0 +1,845 @@
+# 낙하 물리 시뮬레이터
+
+하늘에서 무언가 떨어진다면? 종단속도 · 충격량 · 파괴율을 계산하는 시뮬레이터.  
+Magnus 효과, 지형, 다중 물체, 회전 등 고급 물리 기능 + 카메라 프리셋, 실시간 그래프, 단위 변환, 프리셋 저장/불러오기, 비교 모드 포함.
+
+---
+
+## 필요한 도구 설치 (처음 한 번만)
+
+1. **Node.js** 설치 → https://nodejs.org (LTS 버전 권장)
+2. **CMake** 설치 → https://cmake.org/download/ (3.15 이상)
+3. **Visual Studio Build Tools** 설치 (C++ 컴파일러)
+   - https://visualstudio.microsoft.com/visual-cpp-build-tools/
+   - 설치 시 "C++를 사용한 데스크톱 개발" 선택
+   - ⚠️ Python / node-gyp 불필요 — cmake-js 사용
+
+---
+
+## 빌드 & 실행 순서
+
+```bash
+# 1. 의존성 설치 (esbuild / cmake-js 포함)
+npm install
+
+# 2. C++ 물리 엔진 컴파일 (cmake-js)
+npm run build-addon
+
+# 3. 앱 실행 (자동으로 renderer.bundle.js 번들링 후 시작)
+npm start
+```
+
+> `npm start` = `node scripts/bundle.js && electron .`  
+> esbuild 가 `renderer.js` + `three.js` + `GLTFLoader` 전체를 `renderer.bundle.js` 한 파일로 번들링한 뒤 실행합니다.  
+> CMakeLists.txt가 빌드를 제어하며, node-gyp 불필요.
+
+---
+
+## exe 파일로 배포
+
+```bash
+npm run dist
+```
+
+`dist/` 폴더에 설치 파일(`.exe`)이 생성됩니다.
+
+> ⚠️ **자동 빌드 순서**: `npm run dist`는 다음을 자동으로 실행합니다:
+> 1. `npm run build-addon` (C++ 물리 엔진 컴파일)
+> 2. `node scripts/bundle.js` (renderer 번들링)
+> 3. `electron-builder` (exe 생성)
+>
+> **GLB 모델 로딩 방식**: `esbuild`가 `renderer.js` + `three.js` + `GLTFLoader` 전체를 빌드 시점에
+> `renderer.bundle.js` 한 파일로 번들링합니다. 패키지 앱에서 런타임 dynamic import 자체를 없애므로
+> *"Failed to fetch dynamically imported module"* 오류가 원천 차단됩니다.
+> **`npm install`을 반드시 실행**해야 esbuild와 cmake-js가 설치됩니다.
+
+---
+
+## 코드 품질 도구
+
+```bash
+# ESLint로 코드 스타일 검사
+npm run lint
+
+# Prettier로 코드 자동 포맷팅
+npm run format
+
+# 테스트 실행
+npm run test
+
+# 빌드 환경 헬스 체크
+npm run doctor
+```
+
+> `.eslintrc.json` 과 `.prettierrc.json` 로 설정을 관리합니다.  
+> 커밋 전 자동으로 `npm run lint` + `npm run format` 실행 (Husky).
+
+---
+
+## 개발 가이드
+
+- 📖 [CONTRIBUTING.md](CONTRIBUTING.md) - 기여 방법, 커밋 규칙
+- 🔄 GitHub Actions로 자동 검사 (lint, test, build)
+- 🪝 Husky로 커밋 전 ESLint/Prettier 자동 실행
+
+---
+
+## 파일 구조
+
+```
+physics/
+  physics.h      ← 물리 구조체 선언 (SimInput, SimResult, ImpactResult)
+  physics.cpp    ← 핵심 물리 계산
+                   - 종단속도: v_t = sqrt(2mg / ρCdA)
+                   - Magnus 효과: F_M = 0.5 * CL * ρ * A * ω × v
+                   - 지형 중력 분해: g_vert = g·cos(θ), g_slope = g·sin(θ)
+                   - 발사체 모드: v0 각도 분해 (launchAngle, launchAzimuth)
+                   - 충격 에너지: KE = 0.5 * m * v²
+                   - 충격량, 충격력, 충격 압력, 파괴율
+  binding.cpp    ← N-API: C++ ↔ JavaScript 연결
+
+CMakeLists.txt   ← cmake-js 빌드 설정
+main.js          ← Electron 메인 프로세스
+preload.js       ← IPC 브릿지 (보안 경계)
+index.html       ← UI 레이아웃 + 기능 토글 스위치
+renderer.js      ← UI 로직 + Three.js 3D 애니메이션 + 물리 계산
+```
+
+---
+
+## 물리 공식 요약
+
+### 기본 공식
+| 항목 | 공식 |
+|------|------|
+| 종단속도 | `v_t = √(2mg / ρCdA)` |
+| 운동방정식 | `ma = mg - ½ρCdAv²` |
+| Magnus 양력 | `F_M = ½ · CL · ρ · A · ω · (spinAxis × v)` |
+| 지형 중력 분해 | `g_vert = g·cos(θ)`, `g_slope = g·sin(θ)` |
+| 발사 속도 분해 | `vy = -v₀·sin(φ)`, `vx = v₀·cos(φ)·sin(α)` |
+| 충격량 | `J = mv` |
+| 평균 충격력 | `F = J / Δt` |
+| 충격 에너지 | `KE = ½mv²` |
+| 충격 압력 | `P = F / (πr²)` |
+| 파괴율 | 로지스틱: `1 / (1 + e^(-2.5(P/σ_y - 1)))` |
+
+### 신규: 고급 물리 (v2.0)
+| 항목 | 설명 |
+|------|------|
+| **Reynolds 수 기반 드래그** | `Re = ρvD/μ` → Cd 동적 조정 (저속 구간에서 정확도 ↑) |
+| **물 저항** | `F_water = 20ρ_water·v²·depth` (공기보다 20배 강함) |
+| **Coriolis 효과** | `a_coriolis = 2Ω × v` (위도별 동/서 편향) |
+| **고도별 중력** | `g(alt) = g₀ - 3×10⁻⁶·alt` (정확도 향상) |
+| **회전 감쇠** | `ω(t) = ω₀·exp(-ρA·t/m)` (공기 저항으로 회전 감소) |
+| **바운스 물리** | `e = (1 - destruction_ratio·0.8)·(1 - damping)` (재충돌 에너지) |
+| **에너지 손실 추적** | 낙하 과정 전체 기계에너지 손실량 기록 |
+
+---
+
+## 기능 목록 (F1–F15)
+
+모든 기능은 UI 상단 토글 스위치로 개별 켜고 끌 수 있습니다.
+
+| ID | 기능 | 기본값 | 설명 |
+|----|------|--------|------|
+| F1 | 바람 | ON | X/Z 방향 풍속 적용, 궤적에 영향 |
+| F2 | ISA 표준 대기 | ON | 고도별 밀도·온도·압력 자동 계산 |
+| F3 | 충격 에너지 표시 | ON | 운동에너지, 운동량, 충격력 오버레이 |
+| F4 | 분화구 표시 | ON | 착탄 시 Three.js 분화구 메시 생성 |
+| F5 | 궤적 라인 | OFF | 낙하 경로를 3D 선으로 시각화 |
+| F6 | 정보 툴팁 | ON | 마우스 호버 시 파라미터 설명 |
+| F7 | Magnus 효과 | OFF | 회전 물체의 공기력 편향 계산 |
+| F8 | InstancedMesh 파편 | ON | GPU 인스턴싱으로 파편 고성능 렌더링 |
+| F9 | 충격 에너지 | ON | C++에서 계산한 KE 표시 |
+| F10 | 회전 시각화 | ON | 낙하 중 RPM에 비례한 메시 회전 애니메이션 |
+| F11 | 다중 물체 | OFF | 최대 3개 추가 물체 독립 시뮬레이션 |
+| F12 | 지형 선택 | OFF | 평지 / 경사면 / 수면 / 고지대 지형 |
+| F13 | 발사체 모드 | OFF | 낙하각·방위각으로 초기 속도 분해 |
+| F14 | InstancedMesh 파편 | ON | IcosahedronGeometry 기반 공유 지오메트리 |
+| F15 | 온디맨드 녹화/재생 | OFF | REC 버튼으로 시뮬레이션 기록 및 히스토리 저장 |
+
+### 기능 토글 사용법
+
+1. 좌측 패널 각 섹션 우측의 **토글 스위치** 클릭
+2. ON → 해당 기능 섹션 확장 + 기능 활성화
+3. OFF → 섹션 축소 + 기능 비활성화 (계산에서 제외)
+
+---
+
+## 2026-7-1(4) 개선 사항 (MSI 설치파일 추가 생성)
+
+`2026-7-1(3)` 기반. exe(NSIS) 외에 **MSI 설치파일도 함께 생성**하도록 변경.
+
+### package.json 변경
+- `build.win.target`을 `"nsis"` 단일 값에서 `["nsis", "msi"]` 배열로 변경.
+- `npm run dist` / `dist:smart` / `release` 실행 시 `dist/` 폴더에 `.exe`(NSIS)와 `.msi`
+  **두 파일이 모두** 생성됨.
+
+### ⚠️ 자동 업데이트는 NSIS(exe) 쪽에만 적용됨
+- `electron-updater`(Help → Check for Updates)는 **Windows에서 NSIS 설치파일만** 자동
+  다운로드/설치를 지원한다. MSI는 electron-updater가 지원하는 대상 목록에 없음
+  (MSI는 보통 사내 배포·그룹 정책(GPO) 배포용으로 쓰임).
+- 즉:
+  - **exe(NSIS)로 설치한 사용자** → Help → Check for Updates가 정상적으로 자동
+    업데이트를 처리함.
+  - **msi로 설치한 사용자** → 자동 업데이트 대상이 아니므로, 새 버전이 나오면
+    GitHub Releases 페이지에서 새 msi를 받아 수동으로 재설치해야 함.
+- 사내 배포(msi)와 개인 배포(exe)를 동시에 지원하고 싶을 때 유용한 구성.
+
+> C++ 물리 코드 변경 없음 → `npm run build-addon` 재실행 불필요. 신규 의존성 없음 →
+> `npm install` 불필요(패키징 설정만 변경).
+
+---
+
+## 2026-7-1(3) 개선 사항 (GitHub Releases publish 설정)
+
+`2026-7-1(2)` 기반. 자동 업데이트가 실제로 동작하도록 배포처를 GitHub Releases로 확정.
+코드 서명은 이번엔 진행하지 않기로 함(인증서 구매 보류).
+
+### package.json 변경
+- `build.publish`에 GitHub Releases 지정:
+  ```json
+  "publish": [{ "provider": "github", "owner": "rohaoh", "repo": "sp202606" }]
+  ```
+- 신규 스크립트 `npm run release`: 빌드 후 **GitHub Release에 자동 업로드**까지 수행
+  (`electron-builder --publish always`). 기존 `npm run dist` / `dist:smart`는 업로드 없이
+  로컬에만 exe를 만드는 그대로 유지(실수로 배포되는 일 없도록).
+
+### 실제로 새 버전을 배포하는 방법
+1. GitHub에서 Personal Access Token 발급 (Settings → Developer settings → Personal access tokens,
+   `repo` 권한 필요).
+2. 배포할 PC/환경에 환경변수로 설정: `GH_TOKEN=발급받은토큰`
+3. `package.json`의 `"version"`을 새 버전으로 올림 (예: `1.0.0` → `1.0.1`).
+4. `npm run release` 실행 → `npm run build-addon` + 번들링 + electron-builder 패키징 후,
+   GitHub 저장소의 **Releases**에 설치 파일과 업데이트 메타데이터(`latest.yml`)가 자동 업로드됨.
+5. 이미 앱을 설치해 쓰고 있는 사용자는 Help → **Check for Updates…**(또는 자동 확인 토글이
+   켜져 있으면 앱 시작 시) 클릭하면 새 버전을 감지해 다운로드/설치를 물어봄.
+
+> ⚠️ `GH_TOKEN`은 절대 코드/설정 파일에 직접 넣지 말고 환경변수로만 전달할 것.
+
+### 코드 서명은 보류
+- Authenticode 인증서 구매를 진행하지 않기로 함에 따라, 배포되는 exe는 서명되지 않은 상태로 유지됨.
+- Windows SmartScreen이 "알 수 없는 게시자" 경고를 띄울 수 있음(정상 동작, 위험한 게 아님).
+- 나중에 인증서를 마련하면 `CSC_LINK` / `CSC_KEY_PASSWORD` 환경변수만 추가하면 되고,
+  package.json 등 코드 변경은 필요 없음(`2026-7-1(2)` 항목 9 참고).
+
+> C++ 물리 코드 변경 없음 → `npm run build-addon` 재실행 불필요. `npm install`은 불필요
+> (신규 의존성 추가 없음, package.json 스크립트/설정만 변경).
+
+---
+
+## 2026-7-1(2) 개선 사항 (병렬 시뮬레이션 · 타입 체크 · 물리 단위 테스트 · 프리셋 파일 · 물체 충돌 · 자동 업데이트)
+
+`2026-7-1` 기반. 사용자가 요청한 10가지 추가 개선사항을 구현.
+
+### 1. 빌드 캐시를 실제 배포 빌드에 연동
+- `scripts/build-cache.js`에 `needsNativeBuild()` / `updateNativeCache()` 추가 — C++ 물리 소스
+  (`physics/*.cpp`, `physics/*.h`, `CMakeLists.txt`)의 해시가 이전과 같고 `physics.node` 산출물이
+  이미 있으면 `build-addon`(cmake-js 컴파일, 가장 느린 단계)을 건너뛴다.
+- `scripts/smart-dist.js` 신규: `npm run dist:smart` — 변경 없으면 native 빌드 스킵, 번들링/패키징은 매번 실행.
+- 기존 `npm run dist`(항상 전체 재빌드)는 그대로 유지 — 안전한 기본값을 건드리지 않음.
+
+### 2. 다중 물체(F11) 병렬 시뮬레이션 — Web Worker로 실제 연동
+- 이전 버전의 `scripts/parallel-physics.js`(Node worker_threads)는 실제 앱 UI와 연결되어 있지
+  않은 데모 유틸이었음. 이번에 **렌더러가 실제로 사용하는 병렬 처리**로 교체.
+- `physics-core.js`(신규, 전역 스크립트): 낙하 물리 적분 로직을 UI에 의존하지 않는 순수 함수
+  `runFallSimulation()`으로 분리. `index.html`에서 `renderer.bundle.js`보다 먼저 로드.
+- `sim-worker.js`(신규): `physics-core.js`를 `importScripts`로 불러와 Web Worker 안에서
+  독립적으로 낙하 계산을 수행.
+- `renderer.js`: 물체가 2개 이상이면 Worker 풀로 병렬 계산(`simulateMultiObjectsParallel`),
+  Worker 미지원/실패 시 자동으로 동기 계산 폴백. 메인 물체 계산(`localSimulate`)도 동일한
+  `runFallSimulation()`을 재사용하도록 리팩터링(로직 중복 제거).
+- CSP에 `worker-src 'self'` 추가.
+
+### 3. 타입 체크 활성화 (jsconfig.json)
+- `checkJs: true`로 전환 + `target: ES2020` + `module: ESNext` + `moduleResolution: bundler`.
+- `global.d.ts` 신규: `window.physics` / `window.appBridge`(preload.js 브릿지) 타입 선언,
+  Electron이 확장하는 `process.resourcesPath`, 네이티브 addon(`*.node`) 와일드카드 선언.
+- `renderer.js`는 13만 자 규모의 레거시 UI 파일이라 전체 타입 도입 대상에서 제외
+  (`// @ts-nocheck` + 사유 주석). `main.js` / `preload.js` / `physics-core.js` /
+  `sim-worker.js` / `scripts/**/*.js`는 실제로 타입 체크됨.
+- `npm run typecheck`(`tsc --noEmit -p jsconfig.json`) 신규 — `typescript`, `@types/node` devDependency 추가.
+- **타입 체크 도중 실제 버그 2건 발견 및 수정**:
+  - `main.js`: catch 블록에서 이미 상위 스코프에 있는 `dialog`를 다시 `require`하던 죽은 코드 제거.
+  - `scripts/parallel-physics.js`: `createWorkerPool` 함수가 파일에 **두 번 선언**되어 있었고,
+    첫 번째(항상 두 번째 선언에 덮어써져 죽어있던 코드)는 `processQueue`가 정의되지 않은 채
+    호출되는 실제 버그였음. 죽은 코드 제거.
+
+### 4. 물리 엔진 단위 테스트 (C++)
+- `physics/tests/test_physics_core.cpp` 신규: `physics.cpp`를 직접 include해 파일 스코프
+  `static` 헬퍼 함수(Reynolds 수, Cd 보정, 물 저항, Coriolis, 고도별 중력)까지 포함해 24개
+  검증 항목 테스트. cmake-js/Electron 헤더 없이 `g++`만으로 컴파일/실행 가능(독립 실행형).
+- `scripts/test-physics.js` + `npm run test:physics` 신규.
+
+### 5. 다중 물체끼리 충돌(시각 효과, 토글)
+- Multi-Object 섹션에 `물체간 충돌(시각 효과)` 토글 추가(기본 OFF).
+- 겹치는 물체들을 서로 밀어내기만 하는 시각적 보정(경계 구 기반). **핵심 물리 계산/충돌 결과
+  수치는 그대로 유지**되고, 화면에 보이는 낙하 물체 메시 위치만 조정됨.
+
+### 6. 프리셋 JSON 파일 내보내기/가져오기
+- 기존 localStorage 프리셋 저장/불러오기에 더해 `Export JSON` / `Import JSON` 버튼 추가.
+- 내보내기: 저장된 프리셋 전체를 `physics-sim-presets.json`으로 다운로드.
+- 가져오기: JSON 파일을 읽어 기존 localStorage 프리셋에 병합(동일 이름은 덮어씀).
+
+### 7. 다중 물체 CSV 내보내기 보강
+- `exportCSV()`에 `Multi-Object Summary` 섹션 추가: 각 물체의 질량/면적/Cd/시간차/종단속도/
+  충돌속도/낙하시간/착지시각(`FallTime + DropDelay`)을 표로 정리.
+
+### 8. 자동 업데이트(electron-updater) 연동
+- `electron-updater` dependency 추가. `main.js`에 Help 메뉴 → **Check for Updates…**(수동 확인) +
+  **시작 시 자동으로 업데이트 확인**(체크박스 토글, 기본 OFF, `update-config.json`에 저장) 추가.
+- ⚠️ 실제로 업데이트를 받으려면 `package.json`의 `build.publish`에 배포처(GitHub Releases 등)를
+  설정해야 함 — 아직 미설정이라 "Check for Updates" 클릭 시 정상적으로 "연결 실패" 안내가 뜸
+  (앱이 죽지 않고 우아하게 처리됨). 배포처를 정하면 아래처럼 채우고 `npm run dist`로 다시 빌드:
+  ```json
+  "build": { "publish": [{ "provider": "github", "owner": "<계정>", "repo": "<저장소>" }] }
+  ```
+
+### 9. 코드 서명(문서화)
+- Windows exe의 SmartScreen 경고를 없애려면 Authenticode 인증서가 필요(구매 필요, 코드 변경 불필요).
+- 인증서를 얻은 뒤 `CSC_LINK`(인증서 경로/base64) + `CSC_KEY_PASSWORD` 환경변수를 설정하고
+  `npm run dist`를 실행하면 electron-builder가 **자동으로 서명**함(package.json 수정 불필요).
+  비밀번호를 코드/설정 파일에 직접 넣지 않기 위해 일부러 코드 변경은 하지 않음.
+
+### 10. renderer.js 모듈 분리 — 이번엔 보류
+- 13만 자 단일 파일 전체 리팩터링은 위험도가 높아(회귀 가능성) 이번 라운드에서는 보류.
+  대신 `physics-core.js`를 분리해 재사용성 문제(항목 2)는 해결함. 전체 모듈화는 별도 라운드에서
+  다루는 것을 권장.
+
+> C++ 물리 코드(`physics.cpp`)는 변경하지 않음(단위 테스트만 추가) → `npm run build-addon` 재실행 불필요.
+> 단, `npm install`은 새 의존성(`electron-updater`, `typescript`, `@types/node`) 설치를 위해 필요.
+
+---
+
+## 2026-7-1 개선 사항 (다중 물체 시간차 낙하 · 전체 UI 개선)
+
+`2026-6-30` 기반. 다중 물체(F11) 기능에 시간차 낙하를 추가하고, 전반적인 UI 완성도를 높였다.
+
+### 1. 다중 물체 시간차 낙하 (Multi-Object Drop Delay)
+- Multi-Object 패널의 각 물체(Object 2/3/4)에 **`낙하 시간차 (s)`** 입력 필드 추가.
+  - 값이 0이면 기존과 동일하게 주 물체와 동시에 낙하(하위 호환).
+  - 값을 주면 해당 초만큼 대기했다가 낙하를 시작 — 순차적/시간차 낙하 연출 가능.
+- **`시간차 자동 적용`** 버튼: 옆의 간격(초) 값을 기준으로 Object 2, 3, 4에 `0, step, 2×step` 초를 자동 할당.
+- 재생 총 길이(`totalSim`)가 각 물체의 `낙하 시간 + 시간차`까지 고려하도록 계산 로직 수정 — 가장 늦게 낙하하는 물체가 착지할 때까지 재생이 끝나지 않음.
+- 구현:
+  - `renderer.js`의 `moObjects` 항목에 `dropDelay` 필드 추가.
+  - 애니메이션 루프에서 `objTime = playHead - dropDelay`; `objTime < 0`이면 초기 낙하 높이에서 대기, 이후 해당 물체의 프레임을 `objTime` 기준으로 보간.
+  - Run 시 각 물체의 보간 커서(`_cs`)를 초기화해 재실행 시 이전 재생 위치가 남지 않도록 함.
+- C++ 물리 코드 변경 없음 (지연은 렌더링/재생 타이밍만 조정, 개별 물체의 낙하 물리 계산 자체는 기존과 동일).
+
+### 2. 전체적 UI 개선
+- **스크롤바 통일**: 좌/우 패널, 표, 히스토리 목록의 스크롤바를 다크 테마에 맞춘 얇은 커스텀 스크롤바로 통일.
+- **키보드 포커스 표시**: 버튼·탭·토글 스위치에 `:focus-visible` 아웃라인 추가 (키보드 탐색 접근성 개선).
+- **버튼 눌림 피드백**: 아이콘/텍스트/실행 버튼 클릭 시 살짝 축소되는 눌림 애니메이션 추가로 클릭감 향상.
+- **카드형 항목 hover 강조**: Multi-Object 항목, 녹화 히스토리 항목에 마우스 오버 시 테두리·그림자 강조로 입체감 부여.
+- **섹션 전환 부드럽게**: 좌측 패널 섹션 접힘/펼침 시 opacity 전환 추가.
+
+> C++ 물리 코드 변경 없음. `npm start`로 재번들 후 바로 실행 가능 (`npm run build-addon` 재실행 불필요).
+
+---
+
+## 2026-6-29(7) 개선 사항 (UI 개선 · CSV 열 추가 · 물리 버그 수정)
+
+`2026-6-29(6)` 기반. UI 품질 향상, CSV 내보내기 누락 열 추가, C++ 물리 버그 수정.
+
+### 1. 팝업 창 UI 개선 (settings.html, results.html)
+- **제목(h1)**: 14→18px로 확대, 왼쪽 정렬, 하단 구분선(`border-bottom`) 추가
+- **여백/간격**: body padding 14→18px, 필드 간격·레이블 세부 조정
+
+### 2. CSV 내보내기 누락 열 추가 (renderer.js `exportCSV`)
+- **TerminalVel%**: 종단속도 대비 속도 비율 열 추가 (데이터 테이블과 동일)
+- **DriftX(m) / DriftZ(m)**: 바람/발사체 여부와 관계없이 항상 포함 (데이터 테이블과 동일하게 `0.00` 표시)
+- **SurfaceT(°C) / HeatFlux(kW/m2)**: 대기 마찰열(heat) 기능 ON 시 자동 추가
+
+### 3. 물리 버그 수정: 20km 대기권 경계 온도 불연속 (physics.cpp)
+- **수정 전**: `T20 = 216.65 + tempOffset * 0.5` — 20km 기준 온도에 tempOffset의 절반만 반영되어 11–20km 등온층 끝 온도(T11)와 불일치 발생
+- **수정 후**: `T20 = T11` — 11km 등온층 끝 온도와 동일하게 연결 (JS 구현과 일치, ISA 표준 준수)
+- ⚠️ **C++ 물리 코드 변경됨 → `npm run build-addon` 재실행 필수**
+
+---
+
+## 2026-6-30 개선 사항 (물리 엔진 고도화)
+
+### 7가지 물리 엔진 개선사항
+
+| # | 기능 | 효과 | 구현 |
+|----|------|------|------|
+| 1 | **Reynolds 수 기반 드래그** | 저속(Re<1000)에서 정확도 ↑ | `calcReynoldsNumber()` + 동적 Cd 조정 |
+| 2 | **물 저항** | 수심 고려한 물리 계산 | `calcWaterDrag()` + 침수도 (0-1) 계산 |
+| 3 | **Coriolis 효과** | 위도별 지구 자전 편향 | `calcCoriolisAccel()` + latitude 입력 |
+| 4 | **고도별 중력 변화** | 극지방/적도 중력 차이 | `calcGravityAtAltitude()` + WGS84 모델 |
+| 5 | **회전 감쇠** | 공기 저항으로 회전 감소 | exponential decay: `ω·exp(-ρAt/m)` |
+| 6 | **바운스 물리** | 재충돌 에너지 손실 계산 | `bounceDamping` 파라미터 + 연쇄 바운스 |
+| 7 | **에너지 손실 추적** | 낙하 과정 전체 손실량 기록 | `totalEnergyLoss` 누적 저장 |
+
+### 신규 입력 파라미터 (SimInput)
+- `waterDepth` (m): 물 깊이, 0 = 공기 중
+- `bounceDamping` (0-1): 바운스 에너지 손실률
+- `latitude` (°): 위도 (Coriolis 효과용)
+
+### 신규 출력 정보 (ImpactResult)
+- `bounceVelocity`: 첫 바운스 후 속도
+- `bounceCount`: 총 바운스 횟수
+- `totalEnergyLoss`: 낙하 과정 전체 에너지 손실 (J)
+- `coriolisDeflection`: 동쪽 편향 거리 (m)
+
+### 신규 트레이싱 데이터 (PhysicsFrame)
+- `spinRate`: 현재 회전 각속도 (회전 감쇠 추적)
+- `reynoldsNumber`: 현재 Reynolds 수
+- `energyLoss`: 누적 에너지 손실
+
+---
+
+⚠️ **C++ 물리 코드 대폭 개선됨 → `npm run build-addon` 필수 재실행**
+
+---
+
+## 2026-6-30 추가 개선 (10가지 빌드·성능·개발 도구)
+
+### 10가지 품질 보증 기능
+
+| # | 기능 | 설명 | 명령어 |
+|----|------|------|--------|
+| 1 | **보안 감사** | npm audit로 취약점 스캔, 버전 추적 | `npm run audit` |
+| 2 | **번들 분석** | renderer.bundle.js 크기 분석, 최적화 제안 | `npm run analyze-bundle` |
+| 3 | **타입 검사** | JSDoc 기반 타입 체크 설정 (jsconfig.json) | - |
+| 4 | **성능 벤치마크** | 번들 시간/크기 목표 검증 | `npm run benchmark` |
+| 5 | **에러 핸들러** | 전역 exception/rejection 로깅 (logs/) | - |
+| 6 | **빌드 캐싱** | SHA256 파일 해시로 변경 파일만 재빌드 | - |
+| 7 | **성능 테스트** | Jest 번들 로딩/메모리/계산 성능 검증 | `npm run performance-test` |
+| 8 | **병렬 물리** | Worker threads로 다중 객체 동시 시뮬레이션 | `npm run parallel-sim` |
+| 9 | **API 문서** | JSDoc 파싱으로 자동 마크다운 생성 | `npm run generate-docs` |
+| 10 | **메모리 누수 감지** | 힙 스냅샷/GC 모니터링, 누수 분석 리포트 | `npm run check-memory` |
+
+### 신규 스크립트 및 설정
+
+- **scripts/security-audit.js**: npm audit 통합, 취약점 등급별 분류
+- **scripts/analyze-bundle.js**: 라이브러리 감지, 트리셰이킹/코드분할 제안
+- **jsconfig.json**: JSDoc 기반 타입 체크 설정
+- **scripts/benchmark.js**: 번들 시간(<2000ms), 크기(<3MB) 검증
+- **error-handler.js**: uncaughtException/unhandledRejection 로깅
+- **scripts/build-cache.js**: SHA256 기반 파일 변경 감지 캐싱
+- **__tests__/performance.test.js**: 3가지 Jest 성능 테스트
+- **scripts/parallel-physics.js**: Worker 풀 기반 병렬 시뮬레이션 API
+- **scripts/physics-worker.js**: 각 워커의 독립 물리 계산 루틴
+- **scripts/generate-docs.js**: JSDoc 자동 파싱/마크다운 생성
+- **scripts/detect-memory-leaks.js**: 메모리 누수 감지 분석 엔진
+
+### 통합 개선 효과
+
+- **개발 생산성 ↑**: 버그 조기 발견 (lint/test 자동화), 병목 투명화 (벤치마크)
+- **안정성 ↑**: 에러 캡처/로깅, 메모리 누수 조기 감지
+- **성능 ↑**: 빌드 캐싱 (불필요 재빌드 제거), 병렬 처리 (다중 객체)
+- **유지보수성 ↑**: 자동 API 문서, 명확한 성능 목표
+
+### 앞으로도 계속
+
+모든 신규 기능은 **켜고 끌 수 있게(토글)** 설계되었으며, 필요시 비활성화 가능합니다.
+각 스크립트는 **독립 실행 가능**하고, CI/CD 파이프라인(GitHub Actions)에 통합할 수 있습니다.
+
+---
+
+## 2026-6-29(6) 버그 수정 (View 체크박스 반영 · 팝업 항목 비활성화 해제)
+
+`2026-6-29(5)` 기반. 네이티브 메뉴의 두 가지 버그를 수정했다.
+
+### 1. View 체크박스 변경 시 레이아웃 미반영 수정
+- **원인**: `buildMenu()`의 View 체크박스 `click` 핸들러가 `sendToMain('settings:set', ...)` 으로 보냈으나, 렌더러는 `settings:set` 채널을 듣지 않고 `settings:apply` 만 수신함.
+  - 팝업 창에서 오는 `settings:set`은 ipcMain 핸들러를 거쳐 `settings:apply`로 변환되지만, `sendToMain`은 ipcMain을 우회해 렌더러 webContents에 직접 전달하므로 이 변환이 일어나지 않았음.
+- **수정**: 모든 View 항목 click 핸들러를 `sendToMain('settings:apply', ...)` 으로 변경.
+  - Always show graph, Always show trajectory data, Always show settings panel, Simulator-only mode 전부.
+
+### 2. "Graph…" / "Trajectory data…" 팝업 항목 항상 비활성화 수정
+- **원인**: 두 항목에 `enabled: !v.alwaysGraph` / `enabled: !v.alwaysTraj` 조건이 있어, 기본값(`alwaysGraph: true`, `alwaysTraj: true`)일 때 항상 비활성화됨 → 클릭해도 아무 반응 없음.
+- **수정**: `enabled:` 조건 제거 — "Always show" 체크 여부와 관계없이 항상 팝업을 열 수 있음.
+
+## 2026-6-29(5) 변경 사항 (네이티브 메뉴 일원화 · 창 안 HTML 메뉴바 제거)
+
+`2026-6-29(4)` 기반. 메뉴를 **OS 네이티브 메뉴(`Menu.setApplicationMenu`)로 단일화**하고, (3)에서 임시로 넣었던 **창 안 HTML 메뉴바(File/Edit/View)를 완전히 제거**했다.
+
+### 1. 업로드를 네이티브 파일 대화상자로
+- HTML 메뉴를 넣었던 핵심 이유였던 "네이티브 메뉴 → 숨김 `<input type=file>` 클릭이 사용자 제스처가 아니라 대화상자가 차단됨" 문제를 정공법으로 해결.
+- **File → Upload GLB/STL** 클릭 시 메인 프로세스가 직접 `dialog.showOpenDialog` 를 띄운다(메인 프로세스 호출이라 제스처 제약 자체가 없음). 고른 파일 바이트를 렌더러로 보내 **기존 업로드 로직(`loadLocalModelFile`: assets 복사→경로 로드, 실패 시 blob 폴백)을 그대로 재사용**한다.
+
+### 2. 창 안 HTML 메뉴바 제거
+- `index.html` 의 `#menubar` 마크업·CSS 삭제, body 그리드 행을 5→4트랙(`auto auto 1fr auto`)으로 조정.
+- `renderer.js` 의 `setupMenubar`/`syncMenubar`(HTML 메뉴 클릭·체크 동기화) 제거. View 메뉴 체크 상태는 `settings:snapshot → buildMenu` 로 네이티브 메뉴에 반영.
+- Edit(설정 창)·View(상시 표시/전용 모드)·결과창 열기 모두 네이티브 메뉴가 직접 처리.
+
+### 3. 네이티브 메뉴 안정화
+- 슬라이더 드래그 등으로 설정 스냅샷이 쏟아져도 **View 상태가 바뀔 때만** 메뉴를 재생성하도록 보강(불필요한 `buildMenu` 반복 제거 → 깜빡임/불안정 완화).
+
+### 유지된 것
+- **시뮬레이터 전용 모드 토글**: 툴바 `⤢` 버튼 + 네이티브 **View → Simulator-only mode** 체크 + 우상단 종료 버튼(상태 `localStorage` 유지). (4)와 동일.
+- **null-safe 초기화**: 주변 툴을 숨기거나 지워도 초기화가 끊기지 않음. (4)와 동일.
+
+C++ 변경 없음 → `npm run build-addon` 재실행 불필요(`npm start`로 재번들).
+
+---
+
+## 2026-6-29(4) 변경 사항 (시뮬레이터 전용 모드 토글 · null-safe 초기화)
+
+`2026-6-29(3)` 기반. "주변 툴을 다 없애고 시뮬레이터만 남기면 배경만 남는" 문제를 두 가지로 해결.
+
+### 1. 시뮬레이터 전용 모드 (토글)
+주변 툴(메뉴바 · 메트릭바 · 툴바 · 좌측 설정 패널 · 우측 그래프 · 하단 궤적 표)을 한 번에 숨기고 **3D 시뮬레이터 캔버스만** 전체 화면으로 남긴다.
+- **켜는 법(아무거나)**:
+  - 툴바의 **⤢** 버튼
+  - **View → 시뮬레이터 전용 모드** 체크 (창 안 HTML 메뉴 / OS 네이티브 메뉴 모두)
+- **끄는 법**: 전용 모드 중 우상단에 뜨는 **⤢ 일반 모드** 버튼, 또는 같은 메뉴 항목 해제.
+- 상태는 `localStorage`에 저장되어 다음 실행에도 유지된다.
+- 켜고 끌 때 캔버스가 새 크기로 즉시 갱신(ResizeObserver + 강제 resize)된다.
+- 구현: `body.sim-only` CSS 클래스로 주변 요소를 `display:none` 처리(인라인 스타일과 충돌 없이 `!important`로 덮음). 요소를 **삭제하지 않고 숨기기만** 하므로 시뮬레이터 동작에 영향이 없다.
+
+### 2. null-safe 초기화 (주변 툴이 없어도 안 죽음)
+기존에는 렌더러가 메뉴/툴/패널 DOM 요소를 직접 참조해서, 그 HTML을 지우면 첫 `null.addEventListener`에서 초기화가 중단되고 **배경(하늘·지형)만** 남았다.
+- `$()` 헬퍼가 존재하지 않는 요소에 대해 **"관대한 스텁"** 을 돌려주도록 변경. 스텁은 `addEventListener` · `style` · `value` · `classList` 등 모든 접근을 무해하게 흡수한다.
+- 정상 UI(요소 존재)에서는 실제 요소를 그대로 돌려주므로 **동작 변화 없음**. 스트립 모드(요소 없음)에서만 작동한다.
+- 풍향 캔버스 등 컨텍스트가 없을 때도 안전하게 건너뛰도록 보강.
+
+C++ 변경 없음 → `npm run build-addon` 재실행 불필요(코드 수정만 했다면 `npm start`로 재번들).
+
+---
+
+## 2026-6-29(3) 변경 사항 (메뉴 실제 동작 — 창 안 HTML 메뉴바 추가)
+
+`2026-6-29(2)` 기반. (2)에서 추가한 메뉴(File/Edit/View)가 동작하지 않던 문제를 해결.
+
+- **원인**: OS 네이티브 메뉴는 환경에 따라 표시/클릭이 불안정하고, File 업로드는 **사용자 제스처가 아니면**(IPC로 트리거) 파일 대화상자가 차단되어 열리지 않음. 그래서 메뉴 항목들이 "작동 안 하는" 것처럼 보였음.
+- **해결**: 창 상단에 **HTML 메뉴바(File / Edit / View)** 를 추가. 클릭이 곧 사용자 제스처라 다음이 확실히 동작함:
+  - **File → Upload GLB / STL**: 숨겨진 파일 입력을 직접 클릭 → 파일 대화상자가 정상적으로 열림.
+  - **Edit → Preset / Falling / Target / Initial / Others**: `open-window` IPC 로 **별도 창**을 연다(창 밖 자유 이동 가능, 유지).
+  - **View → Always show graph / trajectory / settings**: 체크박스로 패널 상시 표시 토글(그래프 ON 시 실시간 자동), `Graph…` / `Trajectory data…` 팝업은 상시 표시 중이면 비활성. `Show result window now` 로 결과창 열기.
+- 설정 변경은 (2)와 동일하게 **메인 렌더러가 단일 출처**이며 별도 창과 IPC 로 양방향 동기화됨. 메뉴바 체크 상태도 다른 창에서 바뀌면 자동 반영(`syncMenubar`).
+- 네이티브 메뉴(`Menu.setApplicationMenu`)도 병행 유지하되, **실동작의 기준은 창 안 HTML 메뉴바**.
+- 신규 IPC: `open-window`(렌더러→메인, 별도 창 열기). `appBridge.openWindow(panel)` 추가.
+
+> C++ 물리 코드 변경 없음. 새 폴더 첫 빌드 시 `npm install` + `npm run build-addon` 후 실행.
+
+---
+
+## 2026-6-29(2) 변경 사항 (대규모: 네이티브 메뉴/별도 창 · 결과창 · 열파괴 · 재료별 파편 등)
+
+`2026-6-29(1)` 기반. UI/UX와 물리 표현을 크게 개편.
+
+### 1. 네이티브 메뉴바 + 별도 설정 창
+- OS 네이티브 메뉴바(File / Edit / View)를 추가(`Menu.setApplicationMenu`).
+- 각 항목은 **창 밖으로 자유롭게 움직일 수 있는 별도 BrowserWindow** 로 열림(모달 아님).
+  - **File** → Upload GLB file / Upload STL file
+  - **Edit** → Preset / Falling object / Target object / Initial conditions / Others (각각 별도 창)
+  - **View** → Always show graph(체크 시 실시간 그래프 자동 ON) / Graph 창(always 시 비활성) / Always show trajectory data / Trajectory data 창(always 시 비활성) / Always show settings panel / 결과창 지금 보기
+- 설정의 단일 출처는 **메인 렌더러**. 별도 창은 IPC(메인 프로세스 경유)로 값을 읽고/바꾸는 원격 컨트롤러로 동작하며, 변경은 모든 창에 실시간 동기화됨. (새 파일: `windows/settings.html|js`, `windows/settings-preload.js`)
+
+### 2. 시뮬레이션 결과창 (별도 창)
+- 시뮬 종료 시 **자동으로 결과창**(별도 BrowserWindow)이 뜸: 종단속도·충돌속도·충격력·압력·운동에너지·운동량·낙하시간·파괴율·표류·최고 표면온도 표시.
+- **Save PNG / Export CSV** 버튼 제공(메인 렌더러의 기존 내보내기 호출).
+- Edit→Others / 코드의 `autoResults` 로 **자동 표시 끄기** 가능. (새 파일: `windows/results.html|js`, `windows/results-preload.js`)
+
+### 3. 대기 연속 그라데이션
+- sky 셰이더를 다중 색 스톱 + `smoothstep` 으로 바꿔 **층 경계 없이 매끄러운 그라데이션**으로 표현(지평선→하늘→상층→우주).
+
+### 4. 표면온도 한계 → 열 파괴 (Edit→Others에서 선택)
+- 표면온도가 **설정한 한계(기본 1500°C)** 를 넘으면 낙하 중 물체가:
+  - **타서 소멸(Burn up)** — 불티를 흩뿌리며 사라짐, 또는
+  - **공중 분해(Disintegrate)** — 큰 조각으로 갈라져 흩어짐.
+- 동작/임계온도는 Others 패널에서 선택. 결과창에도 "THERMAL FAILURE" 로 표시.
+
+### 5. 재료별 파편 차등
+- 유리(`shatter`)=잘게 다수, **금속(`deform`)=심하게 부서지면 3조각으로 분리(`computeSplit`)**, 목재/콘크리트/벽돌(`fracture`)=중간 청크. (`physics.cpp`)
+
+### 6. 프레임레이트 상한 설정
+- Edit→Others 의 `프레임레이트 상한`(무제한/30/60/120). 건너뛴 시간을 누적해 재생 속도를 유지하며 FPS 제한.
+
+### 7. 충돌 크레이터 / 패널 상시 표시
+- 크레이터는 기존 `Impact crater` 토글로 **끌 수 있음**(재료 상태가 가려지는 문제 완화).
+- 좌측 설정창·우측 그래프·하단 궤적 표를 **상시 표시 ON/OFF**(View 메뉴) — 레이아웃 그리드가 자동 조정.
+
+> **C++ 물리 코드(`physics.cpp`)를 수정했습니다. 반드시 `npm run build-addon` 재실행** 후 실행하세요.
+
+---
+
+## 2026-6-29(1) 변경 사항 (고고도 낙하 성능 · troposphere 구름)
+
+`2026-6-29` 기반.
+
+- **고고도 낙하 재생 끊김/느려짐 수정** — 아주 높은 곳에서 떨어뜨리면 처음엔 잘 내려가다가 어느 순간부터 뚝뚝 끊기며 심각하게 느려지던 문제.
+  - 원인: JS 시뮬레이션이 `dt_sim=0.05` 고정이라 낙하 시간이 길수록 프레임이 수만~십수만 개로 폭증. 그래프는 매 0.12초마다 전체 프레임을 `filter`+`map` 하고(특히 realtime 그래프는 `playHead` 가 커질수록 비용 누적 → 갈수록 느려짐), 표는 수만 행의 거대한 DOM이 됨.
+  - 수정: 요약값(충돌 속도·낙하 시간 등)은 전체 해상도로 계산한 뒤, **표시용 프레임을 최대 3000개로 다운샘플**(`downsampleFrames`, 첫·마지막 프레임 보존). 재생 보간·그래프·표·궤적 비용이 낙하 높이와 무관하게 일정해짐. (C++ 충돌 물리는 별도 계산이라 정확도 영향 없음.)
+- **troposphere 구름 표시** — 낮은 고도(troposphere) 구간에서 구름이 안 보이던 문제.
+  - 원인: 구름이 시각 낙하 구간(0~visualH, ≤1500)의 위쪽(800~2000)에만 배치되어, 하단(troposphere) 구간엔 구름이 전혀 없었음.
+  - 수정: 구름에 높이 비율(`_fracY`, 5%~85%)을 부여해 **낙하 구간 전체(하단 포함)에 분포**시키고, 드롭 높이에 맞춰 `positionClouds()` 로 재배치(Run/Reset/replay/높이 변경 시). 구름 개수도 10 → 14개로 늘림. 이제 물체가 troposphere 를 지날 때 구름 사이로 떨어지는 것이 보임.
+
+> C++ 물리 코드 변경 없음. 새 폴더 첫 빌드 시 `npm install` + `npm run build-addon` 후 실행.
+
+---
+
+## 2026-6-29 변경 사항 (GLB 바닥 잠김 수정 · 유리 충격 물리 보정)
+
+`2026-6-28` 기반.
+
+- **GLB 바닥 잠김 수정** — GLB를 넣으면 모델 절반이 바닥/타겟에 잠겨 보이던 문제.
+  - 원인: 모델 중심을 그룹 원점에 두고 그 원점을 표면 높이에 놓아, 모델 아래 절반이 표면 밑으로 내려갔음.
+  - 수정: 모델 바운딩박스 높이의 절반(`glbHalfHeight`)을 저장하고, `glbGroundOffset() = glbHalfHeight × 스케일` 만큼 위로 올려 **모델 바닥이 표면에 닿도록** 함. 낙하/착지/바운스/리셋/정지 모든 위치 동기화에 반영.
+  - **모델마다 높이가 다르므로 GLB에 따라 자동으로 올라가는 양이 달라짐.** 크기 슬라이더를 바꾸면 오프셋도 같이 갱신.
+- **유리(취성) 충격 물리 보정** — 유리 12mm가 8만 kN 이상을 버티던 비현실적 결과 수정.
+  - 원인: 단면 평균 압력(`F/단면적`)을 정적 항복강도와 비교하는데, 단면이 큰 물체는 압력이 희석돼 취성 재료인 유리조차 거대한 힘을 버티게 됨.
+  - 수정: `physics.cpp` 의 `calcImpact` 에 **취성 충격 취약 계수**(brittleFactor) 도입. `fractureMode == "shatter"`(유리) 재료는 파괴 인성이 낮고 국부 응력 집중에 취약하므로 유효 항복강도를 1/8 로 낮춰 충격에 쉽게 깨지게 함. 연성/일반 재료(강판·목재·콘크리트·벽돌)는 영향 없음(계수 1.0).
+
+> **C++ 물리 코드를 수정했습니다. 반드시 `npm run build-addon` 재실행** 후 실행하세요.
+
+---
+
+## 2026-6-28 변경 사항 (판 휨 · 추적 카메라 개선 · 토글 라벨 UI 수정)
+
+`2026-6-27` 기반.
+
+- **판 휨 (Plate Bend, 토글)** — 공이 떨어져 충돌했는데 재질이 **버틸(WITHSTOOD)** 때, 충격 지점이 강판처럼 아래로 부드럽게 휘어집니다.
+  - Target 의 `BoxGeometry` 에 윗면 세그먼트(24×24)를 추가하고, 충격 위치 (x,z) 를 중심으로 **가우시안 변위**를 윗면 vertex 에 적용.
+  - 휨 깊이 = `0.5 × userK × KE / (yield × thickness²)` (KE: 운동에너지, 두께 단위 m). 두께/항복강도가 클수록 적게 휨.
+  - `Target Object` 섹션에 **휨 토글** + **휨 강도 슬라이더(0.1×~3×)** 추가. 진행 중 슬라이더를 움직이면 목표 휨이 즉시 재계산됨.
+  - Run/Reset 시 휨이 원본으로 복원됨.
+- **추적(팔로업) 카메라 개선** — `추적` 버튼을 눌러도 카메라가 공을 잘 따라가지 못하던 문제.
+  - **착지 후에도** 카메라가 공을 따라가도록 변경 (이전에는 착지 시 추적이 끊겨 공이 화면 밖으로 나가곤 했음).
+  - 추적 모드 진입 시 보기 좋은 각도(theta=0.6, phi=1.15, radius=28)로 자동 정렬하고 곧바로 `orbitTarget` 을 공 위치로 스냅 → 첫 프레임부터 공이 화면 가운데에 잡힘.
+  - 추적 감쇠 계수를 키워(낙하 중 18, 착지 후 8) 빠른 종단속도에서도 공을 놓치지 않음.
+  - 시야 거리(radius) 를 공 고도에 따라 18~120 사이로 동적 조절(전엔 14~16 사이로 너무 작았음). 바운스 중에도 동일 로직 적용.
+- **토글 라벨 UI 수정** — 좁은 패널에서 `바닥에서 띄우기 (지지대 위에 올림)` 라벨이 글자 단위로 세로 겹쳐 보이던 버그.
+  - 외곽 `<label>` 에 잘못 부여돼 있던 `class="tog-sw"` (28px 고정폭) 을 제거하고, 토글 스위치와 라벨 텍스트를 별도 요소(`.tog-row` 컨테이너 + `.tog-label`)로 분리.
+  - `word-break: keep-all` 로 한글이 단어 단위로 자연스럽게 줄바꿈되게 함.
+
+> C++ 물리 코드 변경 없음. 새 폴더 첫 빌드 시 `npm install` + **`npm run build-addon` 재실행** 필요.
+
+---
+
+## 2026-6-27 변경 사항 (모델 크기 조정 · STL 렌더 수정 · 업로드 assets 복사)
+
+`2026-6-25(2)` 기반. GLB/STL 모델 렌더링과 업로드 흐름을 개선.
+
+- **모델 크기 조정 (비율 유지)**: `3D Model` 섹션에 `모델 크기 (비율 유지)` 슬라이더 추가.
+  모델을 그룹으로 감싸 중심을 원점에 고정한 뒤 **균등 스케일**을 적용하므로, 크기를 바꿔도 가로·세로·높이
+  비율이 항상 유지되고 중심이 흔들리지 않음. 기본값 1.00× = 기존 정규화 크기(최대변 2.5 유닛)와 동일.
+  - **슬라이더 범위 직접 지정**: `슬라이더 최소 ×` / `슬라이더 최대 ×` 입력칸으로 슬라이더의 가동 범위를 직접 설정.
+  - **크기 직접 입력**: `크기 직접 입력 ×` 칸에 배율을 숫자로 입력 가능. 입력값이 슬라이더 범위를 벗어나면
+    슬라이더 범위가 자동으로 넓어져 따라감. 슬라이더·범위·수치 입력은 모두 양방향 동기화됨.
+- **STL 업로드 렌더링 수정**: 기존에는 STL 파일도 `GLTFLoader`로 로드해 렌더되지 않던 문제를 수정.
+  `STLLoader`를 추가하고 확장자(.stl / .glb)에 따라 적절한 로더를 선택. STL은 표준 머티리얼을 입힌
+  Mesh로 변환해 GLB와 동일한 정렬·정규화 로직을 탐.
+- **업로드 파일을 assets 폴더로 복사 (지연 제거)**: 내 PC의 GLB/STL을 직접 업로드하면 메인 프로세스가
+  파일을 앱의 `assets/` 폴더로 복사한 뒤 로컬 HTTP 서버 정적 경로에서 로드함. blob URL 로딩 시 발생하던
+  지연이 사라지고, 복사된 파일은 다음 실행 때 재사용 가능. (복사 불가 환경에서는 blob URL로 자동 폴백.)
+- **존재하지 않는 helicopter.glb 프리셋 제거**: 파일이 없어 항상 로드 실패하던 `helicopter.glb` 옵션을
+  기본/Shape Custom/Multi-Object 드롭다운에서 모두 제거.
+
+> C++ 물리 코드는 이번 변경에 포함되지 않았지만, 새 폴더에서 처음 빌드할 때는 `npm install` 후
+> **`npm run build-addon` 재실행**이 필요합니다.
+
+---
+
+## 2026-6-25(2) 변경 사항 (Shape Custom GLB · GLB 진단 · 타겟 띄우기)
+
+`2026-6-25(1)` 기반.
+
+- **Shape 셀렉터에 "Custom (GLB)" 옵션 추가**: Shape 드롭다운에서 "Custom (GLB)"을 선택하면 GLB 파일 선택 UI(프리셋 드롭다운 + 파일 직접 업로드)가 바로 아래에 나타남. 선택된 GLB 모델이 주 낙하 물체로 사용되며, 프리셋 선택 시 mass·area·Cd 자동 설정. Custom에서 다른 형상으로 바꾸면 GLB가 제거되고 기본 형상으로 복원됨.
+- **GLB 로드 진단/안정화**: GLB가 로드되지 않고 구(球)로 떨어지던 문제 대응. 그동안 `console.warn`으로만 묻히던 로드 실패를 **화면 토스트로 표시**(로딩 중 / 완료 / 실패+원인+경로). GLTFLoader 초기화 실패 시 시작할 때 안내. 빠른 연속 선택 시 마지막 요청만 반영(시퀀스 가드), 모델 중심 정렬·크기 정규화 개선, 양면 렌더링(DoubleSide)으로 노멀 뒤집힌 모델도 보이게 함.
+- **타겟 바닥에서 띄우기 (토글)**: Target Object 섹션에 `바닥에서 띄우기` 토글 + `띄울 높이` 슬라이더 추가. 켜면 타겟이 네 개의 지지대 기둥 위로 올라가 아래 공간이 생기고, 낙하 물체·GLB·멀티 오브젝트가 모두 올라간 타겟 표면 기준으로 떨어짐. 충격을 버티면 강판처럼 아래로 휘어질(deform) 공간이 확보됨. 토글 OFF면 기존과 동일(높이 0).
+- **Hyperbolic.glb 모델 파일 추가** (`assets/Hyperbolic.glb`).
+- **패키지 빌드에서 GLB 로드 실패 해결**: `.asar` 아카이브에서 Chromium이 `three` ES 모듈을 동적 fetch하지 못해 GLB 로더가 실패하던 문제. `package.json`의 `build.asar`를 `false`로 설정해 `node_modules`를 실제 파일로 풀어 정상 로드되게 함. (렌더링은 동적 import 방식 유지 — dev/패키지 모두에서 검증됨)
+
+> GLB가 여전히 안 보이면 화면 하단 토스트의 오류 메시지(원인·경로)를 확인하세요. 보통 `npm install`로 `node_modules/three`가 설치됐는지, `index.html`의 import map 경로가 맞는지 점검하면 됩니다.
+
+## 2026-6-25(1) 변경 사항 (카메라 팔로업·Multi-Object GLB·GLB 프리셋 물리값)
+
+`2026-6-25` 기반.
+
+- **카메라 팔로업 수정**: 주 물체 착지(`impacted`) 이후 카메라가 지면으로 급격히 줌인되던 문제. 착지 후 추적 일시 정지 → 부가 오브젝트가 아직 낙하 중일 때도 시야 유지.
+- **Multi-Object GLB 지원**: 각 추가 오브젝트(Object 2/3/4)에 GLB 드롭다운 추가. 선택 시 구 대신 GLB 모델이 같은 물리 궤도를 따라 낙하하며 물리값(mass/area/Cd)도 자동 설정.
+- **GLB 프리셋 물리값 자동 설정**: 주 물체의 3D Model 드롭다운에서 GLB를 선택하면 대응하는 mass·area·Cd 값이 자동으로 입력 칸에 채워짐 (수동 수정 가능).
+
+## 2026-6-25 변경 사항 (렌더링·멀티 오브젝트 버그 수정)
+
+`2026-6-23(4)` 기반. 폴더명을 오늘 날짜 `2026-6-25`로 갱신하면서 버그 2건 수정.
+
+- **렌더링 전체 멈춤 수정**: GLTFLoader(`examples/jsm`)가 내부에서 bare specifier `'three'`를
+  import 하는데 import map이 없어 로드 실패 → `async` 초기화가 통째로 중단되어 3D 화면이
+  전혀 그려지지 않던 문제. `index.html`에 import map 추가, GLTFLoader 로드를 `try/catch`로
+  감싸 실패해도 핵심 렌더링은 유지(GLB 기능만 비활성화).
+- **멀티 오브젝트 낙하 중 사라짐 수정**: 주 물체가 먼저 착지하면 나머지 오브젝트가 강제로
+  숨겨지던 문제. 재생을 전체 오브젝트 최대 낙하 시간까지 진행하도록 변경.
+
+---
+
+## 2026-6-23(4) 변경 사항 (GLB 모델 추가)
+
+`2026-6-23(3)` 기반. GLB 프리셋에 실제 모델 2종을 추가.
+
+- `assets/Classic_table.glb` (클래식 테이블)
+- `assets/screwdriver.glb` (드라이버)
+- `3D Model` 섹션 드롭다운에서 바로 선택 가능 (기존 Hyperbolic / helicopter 옵션 유지)
+
+---
+
+## 2026-6-23(3) 변경 사항 (공력 가열 · 파편 충돌 · GLB 모델)
+
+`2026-6-23(2)` 기반.
+
+### 공력 가열 계산 (F16, 토글)
+- 마하수 기반 **정체 온도**: `T_stag = T_atm × (1 + 0.2 × Ma²)` (이상기체, γ=1.4)
+- **Sutton-Graves 간략화 열유속**: `q̇ = 1.83×10⁻⁴ × v³ × √(ρ/R_nose)` (W/m²)
+- **복사 평형 표면 온도**: `T_surface = max(T_atm, (q̇/σε)^0.25, T_stag) − 273` (°C)
+- 공 색상이 온도에 따라 파랑 → 주황 → 빨강으로 변함
+- 오버레이에 Surface T / Heat Flux 표시, 데이터 테이블에 2개 컬럼 추가
+- Visual Features의 `공력 가열 표시 (Heat)` 토글로 켜고 끌 수 있음
+
+### 파편 충돌 판정 (토글)
+- `stepFragmentsJS`를 3단계(중력·지면 / 파편끼리 구(sphere) 충돌 / 회전 업데이트)로 재구성
+- 파편끼리 겹치면 **법선 방향 겹침 해소 + 탄성 충격량**(반발 계수 0.45, 같은 질량 가정) 적용
+- 충돌 시 회전속도 교란 추가로 자연스러운 분산 표현
+- Visual Features의 `파편 충돌 판정 (Collision)` 토글로 끄면 기존 독립 운동 모드로 동작
+
+### GLB 모델 선택 (F17)
+- `assets/` 폴더에 GLB 파일을 넣으면 `3D Model` 섹션 드롭다운에서 선택 가능
+  - `assets/Hyperbolic.glb`, `assets/helicopter.glb`
+- 선택 시 크기 자동 정규화(바운딩 박스 기준 ~2 유닛), 낙하·바운스·충돌 시 동기화
+- 선택 없음(기본)이면 기존 형상(구·박스·원뿔 등)으로 복원
+- `⬆ 파일에서 직접 불러오기` 버튼으로 파일 시스템에서 GLB를 즉시 로드 가능
+
+> **GLB 파일 설치**: `codes/2026-6-23(3)/assets/` 폴더에 `Hyperbolic.glb`, `helicopter.glb` 복사 후 앱 실행.
+
+---
+
+## 2026-6-23(2) 변경 사항 (설정창 폭 자유 조절)
+
+`2026-6-23(1)` 기반. 좌측 **설정창(패널) 폭을 드래그로 자유롭게 조절**할 수 있게 추가.
+
+### 사용법
+
+- 설정창과 3D 캔버스 사이의 **세로 구분선을 드래그**하면 설정창 폭이 바뀜(파란색으로 강조).
+- **더블클릭**하면 기본 폭(230px)으로 리셋.
+- 조절한 폭은 `localStorage`에 저장되어 **앱 재시작 후에도 유지**.
+- 폭 범위: 최소 170px ~ 최대 창 너비의 55%.
+
+### 토글 (규칙 6: 모든 기능 토글화)
+
+- **Visual Features** 섹션의 `설정창 폭 조절 (drag)` 스위치로 켜고 끌 수 있음(기본 ON).
+- OFF 시 구분선이 비활성화되어 드래그/더블클릭이 동작하지 않고 폭이 고정됨.
+
+### 구현 메모
+
+- `.workspace` 그리드를 `var(--left-w, 230px) 5px 1fr 300px`로 변경, 5px 구분선(`#panel-resizer`) 추가.
+- 폭 변경 시 기존 `ResizeObserver(canvasWrap)`가 캔버스 리사이즈를 자동 처리하므로 3D 렌더 비율 유지.
+
+---
+
+## 2026-6-23(1) 변경 사항 (낙하 안정화 · FPS · 팔로업 개선)
+
+`2026-6-23` 버전을 기반으로 재생 부드러움과 카메라 추적을 손본 버전.
+
+### 낙하가 끊기지 않고 쭉 내려가게 (프레임 보간)
+
+- 기존: 재생 루프가 시뮬레이션 프레임(0.05초 간격)을 `findIndex`로 **가장 가까운 프레임에 스냅** → 공이 계단식으로 뚝뚝 떨어짐. 게다가 `findIndex`는 매 프레임 **O(n)** 스캔(긴 시뮬레이션은 수만 프레임).
+- 변경: 단조 증가 커서 기반 **선형 보간**(`lerpFrame`)으로 프레임 사이 높이·속도·드리프트·밀도를 연속적으로 이어줌. 위치가 매끄럽게 변하고, 프레임 조회는 **O(1)** 로 떨어져 FPS도 안정화.
+- 다중 물체(F11) 애니메이션에도 동일한 보간 적용.
+
+### 카메라 추적(팔로업) 개선
+
+- 기존: `lerp(0.18)` 고정 계수 → **프레임레이트 의존적**이고 공이 빠르게 떨어질 때 따라잡지 못해 튐.
+- 변경: `1 - exp(-λ·dt)` 형태의 **프레임레이트 독립 감쇠**로 교체. 추적을 더 단단히(λ=12) 잡아 빠른 낙하에도 공을 놓치지 않고, 거리(orbitRadius)도 같은 방식으로 부드럽게 보간.
+- 추적 모드가 아닐 때도 카메라 타깃 높이를 감쇠 보간해 낙하를 부드럽게 따라 내려감(기존: 즉시 스냅).
+
+### 그림자 갱신 비용 절감 (FPS 안정화)
+
+- 재생 중에는 1024² PCFSoft 그림자맵을 **2프레임당 1회**만 갱신(정지·상호작용 시에는 매번 갱신해 정확도 유지). 매 프레임 강제 갱신하던 비용을 줄임.
+
+---
+
+## 2026-6-23 변경 사항 (임계 기반 파괴 · 두께 · 공 개선)
+
+### 파괴 모델 변경: 무조건 부서지지 않음
+
+- **임계 기반 파괴**: 충격 압력이 재질의 **유효 항복강도를 넘어설 때까지 버팀**(파괴율 0%). 넘어선 뒤부터 점진적으로 부서짐.
+  - `rawRatio = pressure_MPa / effectiveYield`
+  - `rawRatio ≤ 1` → 버팀(Withstood), `> 1` → `1 - exp(-1.1·(rawRatio-1))`
+- **타깃 두께 입력 (mm)**: 두꺼울수록 잘 버팀. `effectiveYield = yieldStrength · √(thickness / 0.1m)`
+- **항복강도 입력 (MPa)**: 재질 강도 직접 조정 가능
+- 새 파괴 등급 **Withstood(버팀)** 추가 — 충격을 견디면 표시
+
+### 공(낙하체) 개선
+
+- **빨간 테두리**: BackSide 빨간 재질 실루엣으로 공 외곽선 강조
+- **버팀 시 바운스**: 재질이 견디면 공이 부서지지 않고 충돌 속도의 일부로 튕겨 오름(감쇠 반발)
+
+### 카메라 추적(팔로업) 개선
+
+- orbitTarget을 매 프레임 **lerp(0.18)** 로 부드럽게 따라가도록 변경(기존: 즉시 스냅)
+- 거리도 공 높이에 따라 완만히 보간하여 화면에 자연스럽게 프레이밍
+
+---
+
+## 2026-6-22(4) 변경 사항 (카메라·그래프·단위·프리셋 개선)
+
+### 신규 기능
+
+- **카메라 프리셋**: 3D 뷰에 기본 / 정면 / 측면 / 위 / 추적 버튼 추가. 추적 모드는 낙하체를 자동으로 따라감.
+- **실시간 그래프**: 탭 바 우측 [실시간] 토글 활성화 시, 재생 중 playhead까지만 그래프를 점진적으로 표시.
+- **단위 변환**: 툴바 [SI] 버튼으로 SI → km/h → 제국단위(ft/s, ft) 순환. 속도·거리 표시 전체 자동 갱신.
+- **프리셋 저장/불러오기 (localStorage)**: 왼쪽 패널 프리셋 이름 입력 후 [저장] → 앱 재시작 후에도 유지. [불러오기]로 파라미터 복원. [삭제]로 제거.
+- **비교 모드**: 툴바 [REF] 버튼으로 현재 결과를 참조값으로 저장 → 다음 시뮬레이션 그래프에 반투명으로 중첩 표시.
+
+---
+
+## 2026-6-22(3) 변경 사항
+
+`2026-6-22(2)` 버전을 기반으로 아래 기능을 추가한 버전.
+
+### 신규 기능 (F7, F9–F15)
+
+- **F7 Magnus 효과**: 스핀 축과 속도의 외적으로 공기력 계산. RPM, 스핀 축 방향 설정 가능.
+- **F9 충격 에너지 표시**: C++ 바인딩에서 `impactEnergy = 0.5 * m * v²` 계산 후 오버레이 표시.
+- **F10 회전 시각화**: 낙하체 메시를 RPM에 비례해 매 프레임 회전.
+- **F11 다중 물체**: 최대 3개 물체를 각각 독립적으로 시뮬레이션. 색상 구분, 그래프에 중첩 표시.
+- **F12 지형 선택**: 평지/경사면/수면/고지대 선택. 경사면은 중력을 수직/수평 성분으로 분해.
+- **F13 발사체 모드**: 낙하각(0°~90°)과 방위각으로 초기 속도 벡터 분해.
+- **F14 InstancedMesh 파편**: 공유 IcosahedronGeometry로 파편 전체를 단일 draw call.
+- **F15 온디맨드 녹화**: REC 버튼으로 arm 후 시뮬레이션 실행 시 자동 저장. 히스토리 탭에서 재생.
+
+### 전체 기능 토글화
+
+- 기존 F1–F6, F8 포함 모든 기능이 UI 토글 스위치로 켜고 끌 수 있음.
+- 기능이 OFF이면 해당 계산이 완전히 비활성화되어 성능 낭비 없음.
+
+---
+
+## 2026-6-22(2) 변경 사항 (기능 추가)
+
+### 추가된 기능
+
+- **F1 바람**: X/Z 방향 풍속 (m/s) 입력 → 낙하 궤적과 착탄 위치에 영향
+- **F2 ISA 표준 대기**: 고도별 밀도 자동 계산 (성층권/대류권 경계 처리)
+- **F3 에너지 대시보드**: 실시간 운동에너지·운동량·충격력 표시 오버레이
+- **F4 분화구**: 착탄 시 반경에 비례한 3D 분화구 메시 생성
+- **F5 궤적 라인**: 시뮬레이션 완료 후 경로를 3D 선(THREE.Line)으로 표시
+- **F6 파라미터 툴팁**: 마우스 호버 시 물리적 의미 설명
+- **F8 파편 인스턴싱**: InstancedMesh로 파편 렌더링 최적화
+
+---
+
+## 2026-6-22(1) 변경 사항 (버그 수정 + FPS 최적화)
+
+### 버그 수정
+
+1. **그래프가 재생 중 멈춤** — 매 프레임 `clearTimeout`으로 디바운스 타이머를 리셋해 재생 중에는 그래프가 한 번도 다시 그려지지 않던 문제. 시간 누적 기반 스로틀(약 8fps)로 교체.
+2. **공기밀도/대기층 데이터 깨짐** — C++ 궤적은 ~120개로 다운샘플되는데, 이를 인덱스 그대로 JS 프레임(0.05초 간격)에 덮어써서 시간이 어긋난 채 표/그래프에 들어가던 문제. localSimulate가 이미 프레임별로 정확히 계산하므로 덮어쓰기를 제거.
+3. **초기 속도(v0)가 충돌 결과에 미반영** — C++ `simulate()`가 v0를 무시하고 항상 0에서 시작. `SimInput`에 `v0`를 추가하고 `v = -v0`로 초기화하여 JS 시뮬레이션과 일치시킴.
+4. **GPU 메모리 누수** — 낙하체/타깃/파편 메시 교체 시 이전 geometry·material을 해제하지 않아 Run을 반복할수록 메모리가 누적되며 FPS가 점점 떨어지던 문제. 교체·정리 시 `dispose()` 호출 추가.
+5. **그래프 maxY 스택오버플로 위험** — `Math.max(...allY)`가 프레임 수천 개일 때 인수 전개로 터질 수 있어 루프 계산으로 변경.
+
+### FPS 최적화
+
+- **온디맨드 렌더링** — 변화가 있을 때만 `render()` 호출. 유휴 상태에서 GPU 사용 거의 0%.
+- **파편 물리 JS 이관** — 매 프레임 IPC 왕복 비용 제거. 동일 물리 로직을 렌더러 JS에서 직접 적분.
+- **표 하이라이트 비용 제거** — 시간키→행 `Map`으로 O(1) 조회 + 10fps 스로틀 + 즉시 스크롤.
+- **표 생성 일괄 주입** — 행마다 `appendChild`하던 것을 문자열로 모아 한 번에 `innerHTML` 주입.
+- **그래프 캔버스 재할당 최소화** — 크기가 바뀔 때만 비트맵 재할당.
+- **픽셀 비율 상한** — `devicePixelRatio`를 2 → 1.75로 낮춰 고해상도에서 픽셀 처리량 감소.
+- **그림자 갱신 최소화** — `shadowMap.autoUpdate=false`로 두고 실제 렌더 프레임에서만 갱신.
+- **구름 애니메이션** — 재생 중에만 이동(유휴 시 렌더 트리거 안 함).
