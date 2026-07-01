@@ -24,7 +24,7 @@
     "check-memory": "node scripts/detect-memory-leaks.js",
     "parallel-sim": "node scripts/parallel-physics.js",
     "generate-docs": "node scripts/generate-docs.js",
-    "prepare": "husky install"
+    "prepare": "node -e \"try{require('child_process').execSync('husky install',{stdio:'inherit'})}catch(e){}\""
   },
   "dependencies": {
     "node-addon-api": "^7.0.0",
