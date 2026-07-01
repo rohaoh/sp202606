@@ -9,7 +9,11 @@
     "start": "node scripts/bundle.js && electron .",
     "dist": "npm run build-addon && node scripts/bundle.js && electron-builder --win --x64",
     "lint": "eslint . --ext .js --ignore-pattern node_modules --ignore-pattern renderer.bundle.js",
-    "format": "prettier --write \"**/*.js\" --ignore-path .gitignore"
+    "format": "prettier --write \"**/*.js\" --ignore-path .gitignore",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "doctor": "node scripts/doctor.js",
+    "prepare": "husky install"
   },
   "dependencies": {
     "node-addon-api": "^7.0.0",
@@ -23,7 +27,10 @@
     "electron": "^31.0.0",
     "electron-builder": "^24.0.0",
     "eslint": "^8.57.0",
-    "prettier": "^3.2.5"
+    "prettier": "^3.2.5",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.2",
+    "jest": "^29.7.0"
   },
   "cmake-js": {
     "runtime": "electron",
@@ -37,5 +44,8 @@
     "win": { "target": "nsis" },
     "files": ["**/*", "!node_modules/.cache", "!renderer.js"],
     "extraResources": [{ "from": "build/Release/physics.node", "to": "physics.node" }]
+  },
+  "lint-staged": {
+    "*.js": ["eslint --fix", "prettier --write"]
   }
 }

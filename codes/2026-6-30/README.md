@@ -63,10 +63,39 @@ npm run lint
 
 # Prettier로 코드 자동 포맷팅
 npm run format
+
+# 테스트 실행
+npm run test
+
+# 빌드 환경 헬스 체크
+npm run doctor
 ```
 
-> `.eslintrc.json` 과 `.prettierrc.json` 로 설정을 관리합니다.
-> renderer.bundle.js 는 자동 제외됩니다.
+> `.eslintrc.json` 과 `.prettierrc.json` 로 설정을 관리합니다.  
+> 커밋 전 자동으로 `npm run lint` + `npm run format` 실행 (Husky).
+
+---
+
+## 환경 변수 설정
+
+```bash
+# .env 파일 생성 (Git에 업로드하지 않음)
+cp .env.example .env
+
+# 실제 Firebase API 키 입력
+# REACT_APP_FIREBASE_API_KEY=your_api_key_here
+# ...
+```
+
+> `.env.example`은 템플릿입니다. 실제 `.env` 파일은 `.gitignore`에 등록되어 있습니다.
+
+---
+
+## 개발 가이드
+
+- 📖 [CONTRIBUTING.md](CONTRIBUTING.md) - 기여 방법, 커밋 규칙
+- 🔄 GitHub Actions로 자동 검사 (lint, test, build)
+- 🪝 Husky로 커밋 전 ESLint/Prettier 자동 실행
 
 ---
 
