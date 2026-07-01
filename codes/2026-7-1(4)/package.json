@@ -2,6 +2,7 @@
   "name": "physics-simulator",
   "version": "3.0.0",
   "description": "Terminal velocity & impact physics simulator",
+  "author": "rohaoh",
   "main": "main.js",
   "scripts": {
     "build-addon": "cmake-js compile",
@@ -55,7 +56,7 @@
     "appId": "com.physics.simulator",
     "productName": "Physics Simulator",
     "asar": false,
-    "win": { "target": ["nsis", "msi"] },
+    "win": { "target": ["nsis", "msi"], "icon": "assets/icon.ico" },
     "files": ["**/*", "!node_modules/.cache", "!renderer.js"],
     "extraResources": [{ "from": "build/Release/physics.node", "to": "physics.node" }],
     "publish": [{ "provider": "github", "owner": "rohaoh", "repo": "sp202606" }]
