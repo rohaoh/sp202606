@@ -13,6 +13,13 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "doctor": "node scripts/doctor.js",
+    "audit": "node scripts/security-audit.js",
+    "analyze-bundle": "node scripts/analyze-bundle.js",
+    "benchmark": "node scripts/benchmark.js",
+    "performance-test": "jest __tests__/performance.test.js",
+    "check-memory": "node scripts/detect-memory-leaks.js",
+    "parallel-sim": "node scripts/parallel-physics.js",
+    "generate-docs": "node scripts/generate-docs.js",
     "prepare": "husky install"
   },
   "dependencies": {

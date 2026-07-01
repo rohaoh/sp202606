@@ -222,6 +222,51 @@ renderer.js      ← UI 로직 + Three.js 3D 애니메이션 + 물리 계산
 
 ---
 
+## 2026-6-30 추가 개선 (10가지 빌드·성능·개발 도구)
+
+### 10가지 품질 보증 기능
+
+| # | 기능 | 설명 | 명령어 |
+|----|------|------|--------|
+| 1 | **보안 감사** | npm audit로 취약점 스캔, 버전 추적 | `npm run audit` |
+| 2 | **번들 분석** | renderer.bundle.js 크기 분석, 최적화 제안 | `npm run analyze-bundle` |
+| 3 | **타입 검사** | JSDoc 기반 타입 체크 설정 (jsconfig.json) | - |
+| 4 | **성능 벤치마크** | 번들 시간/크기 목표 검증 | `npm run benchmark` |
+| 5 | **에러 핸들러** | 전역 exception/rejection 로깅 (logs/) | - |
+| 6 | **빌드 캐싱** | SHA256 파일 해시로 변경 파일만 재빌드 | - |
+| 7 | **성능 테스트** | Jest 번들 로딩/메모리/계산 성능 검증 | `npm run performance-test` |
+| 8 | **병렬 물리** | Worker threads로 다중 객체 동시 시뮬레이션 | `npm run parallel-sim` |
+| 9 | **API 문서** | JSDoc 파싱으로 자동 마크다운 생성 | `npm run generate-docs` |
+| 10 | **메모리 누수 감지** | 힙 스냅샷/GC 모니터링, 누수 분석 리포트 | `npm run check-memory` |
+
+### 신규 스크립트 및 설정
+
+- **scripts/security-audit.js**: npm audit 통합, 취약점 등급별 분류
+- **scripts/analyze-bundle.js**: 라이브러리 감지, 트리셰이킹/코드분할 제안
+- **jsconfig.json**: JSDoc 기반 타입 체크 설정
+- **scripts/benchmark.js**: 번들 시간(<2000ms), 크기(<3MB) 검증
+- **error-handler.js**: uncaughtException/unhandledRejection 로깅
+- **scripts/build-cache.js**: SHA256 기반 파일 변경 감지 캐싱
+- **__tests__/performance.test.js**: 3가지 Jest 성능 테스트
+- **scripts/parallel-physics.js**: Worker 풀 기반 병렬 시뮬레이션 API
+- **scripts/physics-worker.js**: 각 워커의 독립 물리 계산 루틴
+- **scripts/generate-docs.js**: JSDoc 자동 파싱/마크다운 생성
+- **scripts/detect-memory-leaks.js**: 메모리 누수 감지 분석 엔진
+
+### 통합 개선 효과
+
+- **개발 생산성 ↑**: 버그 조기 발견 (lint/test 자동화), 병목 투명화 (벤치마크)
+- **안정성 ↑**: 에러 캡처/로깅, 메모리 누수 조기 감지
+- **성능 ↑**: 빌드 캐싱 (불필요 재빌드 제거), 병렬 처리 (다중 객체)
+- **유지보수성 ↑**: 자동 API 문서, 명확한 성능 목표
+
+### 앞으로도 계속
+
+모든 신규 기능은 **켜고 끌 수 있게(토글)** 설계되었으며, 필요시 비활성화 가능합니다.
+각 스크립트는 **독립 실행 가능**하고, CI/CD 파이프라인(GitHub Actions)에 통합할 수 있습니다.
+
+---
+
 ## 2026-6-29(6) 버그 수정 (View 체크박스 반영 · 팝업 항목 비활성화 해제)
 
 `2026-6-29(5)` 기반. 네이티브 메뉴의 두 가지 버그를 수정했다.

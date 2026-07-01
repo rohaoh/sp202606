@@ -3,6 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 
+// 전역 에러 핸들러 설정
+global.isElectron = true;
+const { setupGlobalErrorHandlers } = require('./error-handler');
+setupGlobalErrorHandlers();
+
 // ── 로컬 HTTP 서버 ──
 // packaged 앱에서 file:// / 커스텀 프로토콜로 로드하면 중첩 import 가 있는 ES 모듈
 // (GLTFLoader.js 내부에서 'three' 및 상대 경로 파일을 재 import)을 Chromium 이
