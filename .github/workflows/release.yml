@@ -1,0 +1,48 @@
+name: Release
+
+# 태그를 v1.0.0 형태로 push하면 자동으로 실행됩니다.
+# (Actions 탭에서 "Run workflow" 버튼으로 수동 실행도 가능)
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch: {}
+
+# 이 프로젝트는 codes/<날짜폴더>/ 안에 있습니다.
+# 새 날짜 폴더로 넘어갈 때마다 아래 PROJECT_DIR 값을 최신 폴더로 바꿔주세요.
+env:
+  PROJECT_DIR: codes/2026-7-1(4)
+
+# GitHub Releases에 파일을 업로드하려면 쓰기 권한이 필요합니다.
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    # NSIS/MSI 패키징과 cmake-js 네이티브 컴파일에는 Windows 빌드 환경이 필요합니다.
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/${{ env.PROJECT_DIR }}
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 의존성 설치
+        run: npm install
+
+      - name: 빌드 (build-addon + bundle) + exe/msi 생성 + GitHub Release 업로드
+        # package.json의 "release" 스크립트를 그대로 재사용한다(build-addon && bundle && electron-builder --publish always).
+        # 여기서 단계를 따로 나열하면 package.json과 내용이 어긋날 위험이 있어 하나의 스크립트로 통일.
+        run: npm run release
+        env:
+          # 같은 저장소 안에서만 릴리즈를 만들기 때문에 GitHub이 자동으로 주는
+          # 토큰으로 충분합니다. 별도 Personal Access Token을 만들 필요가 없습니다.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
