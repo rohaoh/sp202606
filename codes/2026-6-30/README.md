@@ -76,21 +76,6 @@ npm run doctor
 
 ---
 
-## 환경 변수 설정
-
-```bash
-# .env 파일 생성 (Git에 업로드하지 않음)
-cp .env.example .env
-
-# 실제 Firebase API 키 입력
-# REACT_APP_FIREBASE_API_KEY=your_api_key_here
-# ...
-```
-
-> `.env.example`은 템플릿입니다. 실제 `.env` 파일은 `.gitignore`에 등록되어 있습니다.
-
----
-
 ## 개발 가이드
 
 - 📖 [CONTRIBUTING.md](CONTRIBUTING.md) - 기여 방법, 커밋 규칙
