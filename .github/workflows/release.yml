@@ -46,3 +46,24 @@ jobs:
           # 같은 저장소 안에서만 릴리즈를 만들기 때문에 GitHub이 자동으로 주는
           # 토큰으로 충분합니다. 별도 Personal Access Token을 만들 필요가 없습니다.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 버전 읽기
+        id: pkgver
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: 릴리즈 노트 자동 반영 + 발행 (draft 해제)
+        # electron-builder --publish always가 만들어 둔 draft 릴리즈에
+        # RELEASE_NOTES_LATEST.md 내용을 본문으로 채우고 정식 발행한다.
+        # 새 버전을 준비할 때마다 이 파일을 최신 릴리즈 노트로 갱신해두면
+        # 다음 배포부터 자동으로 반영된다.
+        shell: pwsh
+        run: |
+          gh release edit "v${{ steps.pkgver.outputs.version }}" `
+            --title "Physics Simulator v${{ steps.pkgver.outputs.version }}" `
+            --notes-file "RELEASE_NOTES_LATEST.md" `
+            --draft=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
