@@ -40,6 +40,8 @@ body.sim-only .left-panel,
 body.sim-only .panel-resizer,
 body.sim-only .right-panel { display: none !important; }
 body.sim-only .workspace { grid-template-columns: 1fr !important; }
+/* 전용 모드는 컬럼이 1개(1fr)뿐이므로 캔버스를 컬럼 1로 되돌린다(위의 grid-column:3 무효화) */
+body.sim-only #canvas-wrap { grid-column: 1 !important; }
 /* 전용 모드 종료 버튼 (전용 모드에서만 표시 — 이때 툴바가 숨겨지므로) */
 #sim-only-exit {
   position: fixed; top: 10px; right: 12px; z-index: 300;
@@ -76,6 +78,13 @@ body.sim-only #sim-only-exit { display: inline-flex; }
 .t-display { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 /* ── Layout ── */
 .workspace { display: grid; grid-template-columns: var(--left-w, 230px) 5px 1fr 300px; overflow: hidden; }
+/* 각 자식을 고정 컬럼에 못박는다. 이렇게 하지 않으면 설정 패널(좌)·리사이저를
+   display:none 으로 숨길 때 그리드 자동 배치가 남은 항목을 앞 컬럼(0px)으로 밀어
+   3D 캔버스가 0px 컬럼에 들어가 화면이 검게 됨(렌더 안 됨). 컬럼 고정으로 방지. */
+.left-panel   { grid-column: 1; }
+.panel-resizer{ grid-column: 2; }
+#canvas-wrap  { grid-column: 3; min-width: 0; }
+.right-panel  { grid-column: 4; }
 /* ── Left panel resizer (toggleable) ── */
 .panel-resizer { background: var(--border); cursor: col-resize; transition: background .15s; user-select: none; }
 .panel-resizer:hover, .panel-resizer.dragging { background: var(--blue); }
