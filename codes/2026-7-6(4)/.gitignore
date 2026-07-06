@@ -1,0 +1,12 @@
+node_modules/
+build/
+dist/
+*.node
+*.log
+.DS_Store
+renderer.bundle.js
+.build-cache.json
+update-config.json
+benchmark-results.json
+memory-reports/
+logs/
