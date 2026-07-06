@@ -11,7 +11,7 @@ on:
 # 이 프로젝트는 codes/<날짜폴더>/ 안에 있습니다.
 # 새 날짜 폴더로 넘어갈 때마다 아래 PROJECT_DIR 값을 최신 폴더로 바꿔주세요.
 env:
-  PROJECT_DIR: codes/2026-7-6(4)
+  PROJECT_DIR: codes/2026-7-6(5)
 
 # GitHub Releases에 파일을 업로드하려면 쓰기 권한이 필요합니다.
 permissions:
