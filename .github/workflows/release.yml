@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v[0-9]*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '릴리즈할 태그 (예: v2.3.0)'
+        required: true
+        default: 'v2.3.0'
 
 permissions:
   contents: write
@@ -20,12 +26,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: '18'
 
-      # MSVC 크로스 컴파일러 설정 (arm64 는 amd64_arm64 toolchain)
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -41,26 +48,22 @@ jobs:
         env:
           HUSKY: '0'
 
-      # cmake-js 로 C++ 물리 모듈 크로스 컴파일
       - name: Build native addon (${{ matrix.arch }})
         run: npx cmake-js compile --arch ${{ matrix.arch }}
         working-directory: codes/2026-7-7(1)
         env:
           npm_config_arch: ${{ matrix.arch }}
 
-      # renderer.js → renderer.bundle.js (esbuild 번들링)
       - name: Bundle renderer
         run: node scripts/bundle.js
         working-directory: codes/2026-7-7(1)
 
-      # electron-builder: NSIS(.exe) + MSI(.msi) 모두 빌드
       - name: Build installer (${{ matrix.arch }})
         run: npx electron-builder --win nsis msi --${{ matrix.arch }} --publish never
         working-directory: codes/2026-7-7(1)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 빌드 결과물(.exe, .msi)을 아티팩트로 임시 저장
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -95,14 +98,15 @@ jobs:
       - name: Create Draft Release & upload files
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           draft: true
-          name: Physics Simulator ${{ github.ref_name }}
+          name: Physics Simulator ${{ github.event.inputs.tag || github.ref_name }}
           body: |
-            ## Physics Simulator ${{ github.ref_name }}
+            ## Physics Simulator ${{ github.event.inputs.tag || github.ref_name }}
 
             ### 다운로드
             | 파일 | 아키텍처 | 형식 |
-            |------|----------|────|
+            |------|----------|------|
             | `*-x64.exe` | Intel / AMD 64-bit | NSIS 설치 마법사 |
             | `*-x64.msi` | Intel / AMD 64-bit | Windows Installer |
             | `*-arm64.exe` | ARM64 (Surface Pro X 등) | NSIS 설치 마법사 |
