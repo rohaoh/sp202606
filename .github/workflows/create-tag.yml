@@ -24,10 +24,14 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create and push tag
+      - name: Create and push tag (force)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # 기존 태그 삭제 (없으면 무시)
+          git tag -d ${{ github.event.inputs.tag }} 2>/dev/null || true
+          git push origin :refs/tags/${{ github.event.inputs.tag }} 2>/dev/null || true
+          # 새 태그 생성 및 푸시
           git tag ${{ github.event.inputs.tag }}
           git push origin ${{ github.event.inputs.tag }}
-          echo "Tag ${{ github.event.inputs.tag }} created on ${{ github.event.inputs.target }}"
+          echo "Tag ${{ github.event.inputs.tag }} created on $(git rev-parse HEAD)"
