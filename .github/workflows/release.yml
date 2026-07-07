@@ -1,103 +1,116 @@
 name: Release
 
-# 태그를 v1.0.0 형태로 push하면 자동으로 실행됩니다.
-# (Actions 탭에서 "Run workflow" 버튼으로 수동 실행도 가능)
 on:
   push:
     tags:
-      - 'v*.*.*'
-  workflow_dispatch: {}
+      - 'v[0-9]*'
 
-# 이 프로젝트는 codes/<날짜폴더>/ 안에 있습니다.
-# 새 날짜 폴더로 넘어갈 때마다 아래 PROJECT_DIR 값을 최신 폴더로 바꿔주세요.
-env:
-  PROJECT_DIR: codes/2026-7-6(9)
-
-# GitHub Releases에 파일을 업로드하려면 쓰기 권한이 필요합니다.
 permissions:
   contents: write
 
 jobs:
-  # x64 / arm64 두 아키텍처를 순차적으로 빌드해 같은 GitHub Release에 자산을 올린다.
-  # 제작자(publisher) 이름을 아키텍처별로 다르게 넣어야 해서(x64=오로하, arm64=서예준),
-  # electron-builder를 아키텍처마다 따로 호출하며 그 직전에 package.json의 author를 바꾼다.
-  # max-parallel: 1로 순차 실행해 같은 release에 동시에 쓰다가 충돌하는 것을 방지한다.
+  # ── 아키텍처별 빌드 (x64 / arm64) ─────────────────────────────────
   build:
+    name: Build (${{ matrix.arch }})
     runs-on: windows-latest
-
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
-        include:
-          - arch: x64
-            author: 오로하
-          - arch: arm64
-            author: 서예준
-
-    defaults:
-      run:
-        working-directory: ${{ github.workspace }}/${{ env.PROJECT_DIR }}
+        arch: [x64, arm64]
 
     steps:
-      - name: 저장소 체크아웃
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Node.js 설치
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '18'
 
-      - name: 의존성 설치
-        run: npm install
-
-      - name: MSVC 빌드 도구 설정 (x64 호스트 → ${{ matrix.arch }} 타겟, 필요 시 크로스 컴파일)
+      # MSVC 크로스 컴파일러 설정 (arm64 는 amd64_arm64 toolchain)
+      - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.arch == 'arm64' && 'amd64_arm64' || 'amd64' }}
 
-      - name: 이 아키텍처 전용 제작자(publisher) 이름 설정
-        shell: pwsh
-        run: npm pkg set author="${{ matrix.author }}"
+      - name: Install CMake
+        run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+        shell: cmd
 
-      - name: C++ 물리 엔진 컴파일 (${{ matrix.arch }})
-        run: npx cmake-js compile --arch=${{ matrix.arch }}
+      - name: Install dependencies
+        run: npm ci
+        working-directory: codes/2026-7-7(1)
+        env:
+          HUSKY: '0'
 
-      - name: 번들링 (renderer.bundle.js 생성)
-        run: npm run bundle
+      # cmake-js 로 C++ 물리 모듈 크로스 컴파일
+      - name: Build native addon (${{ matrix.arch }})
+        run: npx cmake-js compile --arch ${{ matrix.arch }}
+        working-directory: codes/2026-7-7(1)
+        env:
+          npm_config_arch: ${{ matrix.arch }}
 
-      - name: exe/msi 생성 + GitHub Release에 자산 업로드 (draft 유지)
-        # 두 아키텍처 모두 자산 업로드가 끝난 뒤 finalize 잡에서 한 번만 발행(draft 해제)한다.
-        run: npx electron-builder --win --${{ matrix.arch }} --publish always
+      # renderer.js → renderer.bundle.js (esbuild 번들링)
+      - name: Bundle renderer
+        run: node scripts/bundle.js
+        working-directory: codes/2026-7-7(1)
+
+      # electron-builder: NSIS(.exe) + MSI(.msi) 모두 빌드
+      - name: Build installer (${{ matrix.arch }})
+        run: npx electron-builder --win nsis msi --${{ matrix.arch }} --publish never
+        working-directory: codes/2026-7-7(1)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # x64/arm64 자산이 모두 올라간 뒤, 릴리즈 노트를 채우고 draft를 해제해 정식 발행한다.
-  finalize:
-    needs: build
-    runs-on: windows-latest
+      # 빌드 결과물(.exe, .msi)을 아티팩트로 임시 저장
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.arch }}
+          path: |
+            codes/2026-7-7(1)/dist/*.exe
+            codes/2026-7-7(1)/dist/*.msi
+          retention-days: 1
 
-    defaults:
-      run:
-        working-directory: ${{ github.workspace }}/${{ env.PROJECT_DIR }}
+  # ── Draft 릴리즈 생성 + 아티팩트 첸부 ──────────────────────────
+  release:
+    name: Create Draft Release
+    needs: build
+    runs-on: ubuntu-latest
 
     steps:
-      - name: 저장소 체크아웃
-        uses: actions/checkout@v4
+      - name: Download x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-x64
+          path: dist
 
-      - name: 버전 읽기
-        id: pkgver
-        shell: pwsh
-        run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          echo "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Download arm64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-arm64
+          path: dist
 
-      - name: 릴리즈 노트 자동 반영 + 발행 (draft 해제)
-        shell: pwsh
-        run: |
-          gh release edit "v${{ steps.pkgver.outputs.version }}" `
-            --title "Physics Simulator v${{ steps.pkgver.outputs.version }}" `
-            --notes-file "RELEASE_NOTES_LATEST.md" `
-            --draft=false
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: List dist files
+        run: ls -lh dist/
+
+      - name: Create Draft Release & upload files
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: Physics Simulator ${{ github.ref_name }}
+          body: |
+            ## Physics Simulator ${{ github.ref_name }}
+
+            ### 다운로드
+            | 파일 | 아키텍처 | 형식 |
+            |------|----------|────|
+            | `*-x64.exe` | Intel / AMD 64-bit | NSIS 설치 마법사 |
+            | `*-x64.msi` | Intel / AMD 64-bit | Windows Installer |
+            | `*-arm64.exe` | ARM64 (Surface Pro X 등) | NSIS 설치 마법사 |
+            | `*-arm64.msi` | ARM64 | Windows Installer |
+
+            ### 설치 방법
+            - **.exe**: 더블클릭 → 설치 마법사 진행
+            - **.msi**: 더블클릭 → 자동 설치 (기업 배포용)
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: false
